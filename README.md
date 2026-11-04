@@ -24,6 +24,7 @@
 | 产品 | [docs/product/PRD.md](docs/product/PRD.md) · [功能矩阵](docs/product/FEATURE_MATRIX.md) |
 | 调研 | [竞品分析](docs/research/COMPETITOR_ANALYSIS.md) · [技术对比](docs/research/TECHNOLOGY_COMPARISON.md) · [选型决策](docs/research/PROJECT_SELECTION.md) |
 | 架构 | [系统架构](docs/architecture/SYSTEM_ARCHITECTURE.md) · [数据库](docs/architecture/DATABASE_DESIGN.md) · [Agent Adapter](docs/architecture/AGENT_ADAPTER.md) · [CLI Runtime](docs/architecture/CLI_RUNTIME.md) · [安全模型](docs/architecture/SECURITY_MODEL.md) · [本地-云端](docs/architecture/LOCAL_CLOUD_ARCHITECTURE.md) |
+| M1 计划 | [M1 PRD](docs/product/M1_PRD.md) · [M1 开发计划](docs/development/M1_PLAN.md) · [数据模型](docs/architecture/M1_DATA_MODEL.md) · [API 设计](docs/architecture/M1_API_DESIGN.md) · [前端设计](docs/product/M1_UX_DESIGN.md) · [解耦与派工](docs/architecture/M1_DECOUPLING_AND_ROUTING.md) · [M1 安全](docs/architecture/M1_SECURITY.md) |
 | 开发 | [路线图](docs/development/ROADMAP.md) · [里程碑验收](docs/development/MILESTONE_ACCEPTANCE.md) · [ADR](docs/decisions/ADR_INDEX.md) |
 | 测试 | [M0 测试报告](docs/testing/M0_TEST_REPORT.md) |
 
