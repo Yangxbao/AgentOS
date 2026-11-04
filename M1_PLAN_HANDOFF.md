@@ -1,14 +1,15 @@
 # AgentOS M1 计划与交接文档（单一文档）
 
-> 版本：v1.0｜日期：2026-11-05｜状态：**待项目所有者确认后开始编码**
+> 版本：**v1.1（修订版，计划审查通过后定稿）**｜日期：2026-11-05｜状态：**已完成二次审查修订，具备开始 B1 的条件**
 > 用途：这份文档自包含，可直接交给另一个 AI 或开发者执行 M1。不需要再读其他文档。
-> 文档约定：【已验证】= 有可复核证据｜【设计】= 本文档提出的方案｜【待确认】= 需所有者拍板
+> 文档约定：【已验证】= 有可复核证据（代码/实测）｜【设计】= 本文档提出的方案｜【已确认】= 所有者已拍板
+> 修订内容见文末 **§17 修订记录**；本版修正了端点计数、审查人推导、历史模型快照、本地 API 安全四类问题，并采纳 D-1~D-6 决策。
 
 ---
 
 ## 0. 给接手者的执行须知（先读这 6 条）
 
-1. **不要立即大规模编码**。先读第 15 节的 6 个决策点，向所有者确认（或采用文档建议的默认值并声明）。
+1. **不要重新讨论已定决策**。§15 的 D-1~D-6 已由所有者确认（2026-11-05），直接按结论执行。
 2. **严格按第 12 节的批次顺序**：B1 → B2 → B3 → B4 → B5 → B6。每批独立可验收，不得跳批。
 3. **不要删除或弱化 M0 的 7 个测试**（清单见 §2.4）。它们是在册回归基线。
 4. **禁止安装**：Codex CLI、CrewAI、Docker、Playwright 或任何需要系统权限的组件。禁止上传 GitHub。
@@ -58,6 +59,12 @@ docs/                            M0 调研/架构/产品文档（保留，不再
 `task`、`task_run`、`agent_run`、`task_event`、`usage_record`
 关键设计：任务与执行记录分离（同一 task 多次 run 不覆盖）；`usage_record.cost_usd` 允许 NULL（计价失败不编造）；`agent_run.employee_key` 是临时字符串标识（M1 要加 `employee_id` 列过渡）。
 
+**模型快照现状（本版实测核对，2026-11-05）**【已验证】：
+- `agent_run.model VARCHAR(128)` **已存在**，写入时取自 `employee.adapter.model`（执行当时配置），见 `packages/workflow_engine/sequential.py:52` → 是真实快照
+- `usage_record.model VARCHAR(128)` **已存在**，写入时取自模型返回的 `usage.model`，见同文件 `:74` → 是真实快照
+- 结论：**不需要新增"模型快照"字段**；切换模型不会改写历史（旧行不变）
+- 缺口：`agent_run` 与 `usage_record` **都没有 `employee_id`**（只有 `employee_key` 字符串）→ B3 必须为两张表都补 `employee_id`，否则成本无法按员工稳定归因（员工改名/重建 key 时归因会断）
+
 ### 2.3 已有接口（必须保持兼容）
 `GET /api/health`、`GET /api/tasks`（真实读库）、`GET /api/employees/{model}/health`（经 LiteLLM 真实连通性测试）
 
@@ -78,7 +85,8 @@ docs/                            M0 调研/架构/产品文档（保留，不再
 | `main.py` 单文件 + `on_event` 弃用 | 3 个接口挤在一起 | 拆 `routers/` + `lifespan` |
 | 无统一错误格式/分页 | 各接口裸返回 | 统一错误包络 + 分页依赖 |
 | 前端仅 1 页 | App.tsx 硬编码 | 逐批建页面 |
-| `agent_run.employee_key` 字符串 | 临时设计 | 加 `employee_id` 列双写，M2 切换 |
+| `agent_run`/`usage_record` 无 `employee_id` | 只有 `employee_key` 字符串 | B3 两张表都加 `employee_id` 双写，M2 切换主引用 |
+| 本地管理接口无跨站防护 | 仅 CORS 允许 5173，无 Origin/Host 校验 | B1 增加可信 Origin + Host + `X-AgentOS-Client` 校验（见 §11.8） |
 
 ---
 
@@ -103,7 +111,7 @@ docs/                            M0 调研/架构/产品文档（保留，不再
 |---|---|---|
 | 公司 | 组织根节点，承载策略与预算 | 可多个；M1 至少 1 个 |
 | 部门 | 树形结构 | 同公司名唯一；不得成环；最大 8 层 |
-| 岗位 | 职责模板，含默认权限 | 可绑定部门或跨部门；员工可兼多岗（1 主 + n 兼） |
+| 岗位 | 职责模板，含默认权限与**审查资格** | 可绑定部门或跨部门；员工可兼多岗（1 主 + n 兼）；`can_review` 决定能否担任审查人 |
 | 员工 | 身份 + 提示词 + 权限 + 模型引用 | 必须有公司和主模型；不得自改权限 |
 | 模型连接 | 可测试的连接配置 | 只存密钥引用；被引用不可删 |
 | 提示词版本 | 不可变的文件版本 | 只能新增，不能改历史 |
@@ -113,15 +121,23 @@ docs/                            M0 调研/架构/产品文档（保留，不再
 - **BR-01** 员工必须属于一个公司，且必须有 `primary_model_id`
 - **BR-02** 部门名/岗位名在同公司内唯一
 - **BR-03** 部门树最大深度 8
-- **BR-04** 部门与汇报关系不得成环
+- **BR-04** 部门与汇报关系不得成环，且：
+  - BR-04a 汇报对象必须与员工同公司
+  - BR-04b 不允许 `reports_to = 自己`
+  - BR-04c 不允许把汇报对象设成自己的下级（等价于成环）
+  - BR-04d 汇报链最大长度 20，超出拒绝
+  - BR-04e 汇报对象必须是 `active` 员工
 - **BR-05** 含在册员工的部门不可删除（先迁移/停用）
 - **BR-06** 被员工引用的模型连接不可删除（可停用）
 - **BR-07** 提示词版本不可变；编辑即新增版本；激活版本必须存在且哈希校验通过
 - **BR-08** 停用员工不进入派工候选
 - **BR-09** 有效权限 = 公司策略 ∩ 岗位默认 ∩ 员工覆盖，逐项取更严，任何一层不得扩权
-- **BR-10** 审查人 ≠ 执行人；跨模型审查优先
+- **BR-10** 审查人 ≠ 执行人；跨模型审查优先；**找不到合格审查人时返回空 + 明确原因，不得硬凑**（规则见 §10.5）
 - **BR-11** 密钥只存引用（`env:`/`dpapi:`/`keyring:`），响应/日志/导出包不得出现明文
 - **BR-12** Agent 侧不存在任何可修改员工/岗位/权限/模型绑定的接口（物理隔离）
+- **BR-13** 权限放宽只能发生在岗位层且不得超过公司策略；**员工覆盖层永远只能收窄**（修正 v1.0 中"员工档案可放宽"的表述冲突）
+- **BR-14** 本地管理接口默认只监听 `127.0.0.1`；写请求必须通过可信 Origin + Host + 自定义头校验（见 §11.8），禁止默认监听 `0.0.0.0`
+- **BR-15** 提示词文件与数据库必须最终一致：文件先原子落盘并校验哈希，数据库失败则清理孤儿文件；提供对账脚本（见 §9.6）
 
 ---
 
@@ -149,33 +165,37 @@ docs/                            M0 调研/架构/产品文档（保留，不再
 ### 6.1 新增 10 张表
 所有新表带 `id VARCHAR(32) PK`、`owner_id VARCHAR(64) DEFAULT 'local'`、`created_at/updated_at DATETIME(TZ)`（下文不再重复）。SQLite 与 PostgreSQL 双兼容，只用通用类型。
 
-**company**：`name`(唯一,120) `description` `policy JSON`（`{max_risk_level, allowed_providers[], default_budget_usd, require_cross_model_review}`）`status`(active/archived)
+**company**：`name`(唯一,120) `description` `policy JSON`（`{max_risk_level, allowed_providers[], default_budget_usd, require_cross_model_review, review_policy:{allow_subordinate_review:false, prefer_cross_model:true}}`）`status`(active/archived)
 
 **department**：`company_id FK` `parent_id FK 自引用可空` `name` `code` `description` `sort_order` `depth`（写入时计算）
 索引：`(company_id,parent_id)`；唯一 `(company_id,name)`
 
-**position**：`company_id` `department_id 可空` `name` `level` `is_managerial BOOL` `responsibilities TEXT` `default_permissions JSON`
+**position**：`company_id` `department_id 可空` `name` `level` `is_managerial BOOL` `can_review BOOL`（是否具备审查资格，默认 false）`review_capability_tags JSON`（如 `["code.review","test.verify"]`，与任务能力标签比对）`responsibilities TEXT` `default_permissions JSON`
+> `can_review` 是"测试员独立验证"能否落地的组织基础：没有它，审查人只能靠汇报链硬凑（v1.0 的缺陷）。
 
 **employee**：`company_id` `department_id 可空` `name`(同公司唯一) `avatar` `title` `bio` `personality` `status`(active/disabled/archived) `reports_to FK 自引用` `primary_model_id FK` `fallback_model_id FK 可空` `adapter_type`(api/cli) `cli_profile JSON 可空` `tools_allowed JSON` `permission_profile JSON` `capabilities_declared JSON` `prompt_active_version INT 可空` `deleted_at 可空`
 索引：`(company_id,department_id)` `(reports_to)` `(status)`
 
 **employee_position**：`employee_id`+`position_id` 联合 PK，`is_primary BOOL`（同员工仅一条 true）`department_id` `assigned_at`
 
-**model_connection**：`company_id` `name` `provider`(litellm 前缀) `model` `api_key_ref`(只存 `env:VAR`/`dpapi:x`/`keyring:s:u`) `base_url 可空` `timeout_s` `max_retries` `retry_policy JSON` `model_list_source`(static/api) `last_health_check_at` `last_health_status` `enabled`
+**model_connection**：`company_id` `name` `provider`(litellm 前缀) `model` `api_key_ref`(只存 `env:VAR`/`dpapi:x`/`keyring:s:u`) `base_url 可空` `timeout_s` `max_retries` `retry_policy JSON` `model_list_source`(static/api) `last_health_check_at` `last_health_status` `last_health_latency_ms INT 可空` `enabled`
 唯一：`(company_id, provider, model, coalesce(base_url,''))`
+> 健康缓存规则见 §9.2；`last_health_*` 只是最近一次结果，不作为缓存本体。
 
 **model_switch_log**：`employee_id` `from_model_id 可空` `to_model_id 可空` `slot`(primary/fallback) `actor_type` `actor_id` `reason` `created_at`（只增）
 
 **prompt_revision**：`employee_id` `version INT`（同员工唯一）`file_path`(`data/prompts/employees/<id>/vNNNN.md`) `content_hash`(SHA-256) `note` `created_by` `is_active BOOL`（同员工仅一条 true）
 
-**assignment_decision**：`company_id` `requested_by` `requirement JSON` `candidates JSON`（含每人 score/factors/rejected_reason）`selected_employee_id 可空` `reviewer_employee_id 可空` `algorithm_version VARCHAR(16)`
+**assignment_decision**：`company_id` `requested_by` `requirement JSON` `candidates JSON`（含每人 score/factors/rejected_reason）`selected_employee_id 可空` `reviewer_employee_id 可空` `reviewer_meta JSON`（`{independence, cross_model, reason, reason_code, warnings[], excluded[]}`，v1.1 新增）`data_quality JSON` `algorithm_version VARCHAR(16)`
 
 **audit_log**：`owner_id` `actor_type`(user/agent/system) `actor_id` `action`(如 `employee.model_binding.update`) `target_type` `target_id` `detail JSON`（脱敏）`request_id`（只增，无 update/delete 路由）
 
 ### 6.2 对 M0 表的变更（最小侵入）
 - `agent_run` 新增 `employee_id VARCHAR(32) NULL` + 索引；保留 `employee_key` 原值；M1 新记录双写；M2 再移除旧列
+- `usage_record` 新增 `employee_id VARCHAR(32) NULL` + 索引（**v1.0 遗漏，本版补上**）；成本归因优先用 `employee_id`，为空时回退 `employee_key`
+- 模型快照**不需要新增字段**：`agent_run.model`、`usage_record.model` 已是执行时快照（§2.2 实测）
 - 其余 M0 表**不改结构**（`task_event.type` 值域可扩展）
-- **不回填历史**：M0 的 `employee_key`（如 `m0-researcher`）不是真实员工，硬造记录会污染数据
+- **不回填历史**：M0 的 `employee_key`（如 `m0-researcher`）不是真实员工，硬造记录会污染数据；历史成本报表按 `employee_key` 展示并标注"未关联员工"
 
 ### 6.3 迁移方案（Alembic）
 - 新增依赖 `alembic`；`alembic.ini` + `migrations/`；`env.py` 必须 `render_as_batch=True`（SQLite 限制）
@@ -185,9 +205,9 @@ docs/                            M0 调研/架构/产品文档（保留，不再
 | revision | 批次 | 内容 |
 |---|---|---|
 | `m0_baseline` | B1 | M0 五表（stamp 已有库） |
-| `m1_b1_agent_run_employee_id` | B1 | agent_run 加列 + 索引 |
+| `m1_b1_agent_run_employee_id` | B1 | agent_run 加 `employee_id` + 索引（usage_record 的加列放 B3，因需要 employee 表已存在） |
 | `m1_b2_org` | B2 | company/department/position |
-| `m1_b3_employee_model` | B3 | employee/employee_position/model_connection/model_switch_log |
+| `m1_b3_employee_model` | B3 | employee/employee_position/model_connection/model_switch_log + `usage_record.employee_id` |
 | `m1_b4_prompt` | B4 | prompt_revision |
 | `m1_b5_assignment_audit` | B5 | assignment_decision/audit_log |
 
@@ -201,22 +221,106 @@ docs/                            M0 调研/架构/产品文档（保留，不再
 ### 7.1 通用约定
 前缀 `/api/v1`（`/api/health` 保留兼容）。分页 `?page=1&page_size=20`（≤200）。写操作带 `expected_updated_at`，不匹配返回 409 `CONFLICT_STALE`。创建接口支持 `Idempotency-Key`。时间为 ISO-8601 带时区。资源不存在与无权限统一 404。每请求生成 `request_id`。
 
+**本地接口防护（B1 强制，详见 §11.8）**：
+- 服务只监听 `127.0.0.1`；`scripts/run_api.py` 硬编码该地址，拒绝 `0.0.0.0`（除非显式 `AGENTOS_ALLOW_EXTERNAL=1` 并打印风险警告）
+- 所有**写请求**（POST/PUT/PATCH/DELETE）必须同时满足：`Origin` 或 `Referer` 在允许列表（`http://localhost:5173`、`http://127.0.0.1:5173`、`AGENTOS_TRUSTED_ORIGINS` 追加项）｜`Host` 头为 `127.0.0.1[:port]`/`localhost[:port]`（防 DNS rebinding）｜带自定义头 `X-AgentOS-Client: web`（强制预检，简单请求无法伪造）｜`Sec-Fetch-Site` 不为 `cross-site`。任一不满足 → 403 `UNTRUSTED_REQUEST`
+- 读请求不做 Origin 限制（避免破坏正常打开页面），但同样校验 `Host`
+- `AGENTOS_LOCAL_TOKEN`（可选）：设置后所有写请求还需 `X-AgentOS-Token`，供非浏览器客户端使用；默认不开启，避免影响前端开发
+
 **错误包络**：
 ```json
 {"error":{"code":"BR_DEPARTMENT_HAS_EMPLOYEES","message":"部门下仍有 3 名员工，请先迁移","detail":{"employee_ids":["..."]},"request_id":"req_..."}}
 ```
 **错误码**：`VALIDATION_ERROR`(422)、`BR_DEPARTMENT_CYCLE`(409)、`BR_DEPARTMENT_HAS_EMPLOYEES`(409)、`BR_MODEL_IN_USE`(409)、`BR_EMPLOYEE_NAME_TAKEN`(409)、`BR_PROMPT_HASH_MISMATCH`(409)、`PERMISSION_WIDEN_DENIED`(403)、`CONFLICT_STALE`(409)、`UPSTREAM_AUTH_FAILED`(502)、`UPSTREAM_TIMEOUT`(504)、`PERMISSION_DENIED`(403)
 
-### 7.2 端点清单（38 个）
-- **公司 5**：`GET/POST /companies`、`GET/PATCH /companies/{id}`、`POST /companies/{id}/archive`
-- **部门 6**：`GET /companies/{cid}/departments`、`GET /companies/{cid}/org-tree`（一次返回部门+岗位+员工树，供 React Flow）、`POST /companies/{cid}/departments`、`PATCH /departments/{id}`、`DELETE /departments/{id}`、`POST /departments/{id}/move`（`{new_parent_id,new_index}`）
-- **岗位 5**：`GET/POST /companies/{cid}/positions`、`GET/PATCH/DELETE /positions/{id}`
-- **员工 12**：列表/创建（`/companies/{cid}/employees`）、详情/改档案（`/employees/{id}`）、`POST /employees/{id}/enable|disable`、`DELETE /employees/{id}`（软删）、`PUT /employees/{id}/model-binding`、`GET /employees/{id}/effective-permissions`、`PUT /employees/{id}/permission-overrides`、`GET /employees/{id}/capabilities`、`GET /employees/{id}/prompts`、`GET /employees/{id}/audit`
-- **提示词 4**：`POST /employees/{id}/prompts`（`{content,note}`）、`GET /prompts/{rev_id}`、`POST /prompts/{rev_id}/activate`、`GET /prompts/{rev_id}/diff?against=prev`
-- **模型连接 6**：列表/创建 `GET/POST /companies/{cid}/model-connections`、`PATCH/DELETE /model-connections/{id}`、`POST /model-connections/{id}/test`、`GET /model-connections/{id}/models`
-- **派工 2**：`POST /companies/{cid}/assignments/preview`、`GET /assignments/{decision_id}`
-- **配置 3**：`GET /companies/{cid}/export`、`POST /config/import?dry_run=true`、`POST /config/import`
-- **审计 1**：`GET /audit?actor_type=&action=&from=&to=`
+### 7.2 端点清单（**45 个，逐项编号，作为验收基准**）
+
+> 计数说明：v1.0 标"38 个"是错的——分组写"员工 12"但实际列了 13 项（漏计 `GET /employees/{id}/audit` 与 `GET /companies/{cid}/org-tree` 的归类混乱）。本版逐项编号，**总数 45**；审查意见计算的 44 是按"员工 12"推算的结果。以此表为准，验收时按 ID 逐项打勾。
+
+**A. 公司（5 个，B2）**
+| ID | 方法 | 路径 |
+|---|---|---|
+| API-01 | GET | `/api/v1/companies` |
+| API-02 | POST | `/api/v1/companies` |
+| API-03 | GET | `/api/v1/companies/{id}` |
+| API-04 | PATCH | `/api/v1/companies/{id}` |
+| API-05 | POST | `/api/v1/companies/{id}/archive` |
+
+**B. 部门（6 个，B2）**
+| ID | 方法 | 路径 |
+|---|---|---|
+| API-06 | GET | `/api/v1/companies/{cid}/departments` |
+| API-07 | GET | `/api/v1/companies/{cid}/org-tree`（部门+岗位+员工树，供 React Flow） |
+| API-08 | POST | `/api/v1/companies/{cid}/departments` |
+| API-09 | PATCH | `/api/v1/departments/{id}` |
+| API-10 | DELETE | `/api/v1/departments/{id}` |
+| API-11 | POST | `/api/v1/departments/{id}/move` |
+
+**C. 岗位（5 个，B2；字段含 `can_review`，供 B5 审查人推导）**
+| ID | 方法 | 路径 |
+|---|---|---|
+| API-12 | GET | `/api/v1/companies/{cid}/positions` |
+| API-13 | POST | `/api/v1/companies/{cid}/positions` |
+| API-14 | GET | `/api/v1/positions/{id}` |
+| API-15 | PATCH | `/api/v1/positions/{id}` |
+| API-16 | DELETE | `/api/v1/positions/{id}` |
+
+**D. 员工（13 个：B3 交付 8 个 / B4 交付 1 个 / B5 交付 4 个）**
+| ID | 方法 | 路径 | 批次 |
+|---|---|---|---|
+| API-17 | GET | `/api/v1/companies/{cid}/employees` | B3 |
+| API-18 | POST | `/api/v1/companies/{cid}/employees` | B3 |
+| API-19 | GET | `/api/v1/employees/{id}` | B3 |
+| API-20 | PATCH | `/api/v1/employees/{id}` | B3 |
+| API-21 | POST | `/api/v1/employees/{id}/enable` | B3 |
+| API-22 | POST | `/api/v1/employees/{id}/disable` | B3 |
+| API-23 | DELETE | `/api/v1/employees/{id}`（软删） | B3 |
+| API-24 | PUT | `/api/v1/employees/{id}/model-binding` | B3 |
+| API-25 | GET | `/api/v1/employees/{id}/prompts`（版本列表） | **B4**（依赖 prompt_revision 表） |
+| API-26 | GET | `/api/v1/employees/{id}/audit` | **B5**（依赖 audit_log 表） |
+| API-27 | GET | `/api/v1/employees/{id}/effective-permissions` | **B5** |
+| API-28 | PUT | `/api/v1/employees/{id}/permission-overrides` | **B5** |
+| API-29 | GET | `/api/v1/employees/{id}/capabilities` | **B5** |
+
+**E. 提示词（4 个，B4）**
+| ID | 方法 | 路径 |
+|---|---|---|
+| API-30 | POST | `/api/v1/employees/{id}/prompts`（新建版本） |
+| API-31 | GET | `/api/v1/prompts/{rev_id}` |
+| API-32 | POST | `/api/v1/prompts/{rev_id}/activate` |
+| API-33 | GET | `/api/v1/prompts/{rev_id}/diff?against=prev` |
+
+**F. 模型连接（6 个，B3）**
+| ID | 方法 | 路径 |
+|---|---|---|
+| API-34 | GET | `/api/v1/companies/{cid}/model-connections` |
+| API-35 | POST | `/api/v1/companies/{cid}/model-connections` |
+| API-36 | PATCH | `/api/v1/model-connections/{id}` |
+| API-37 | DELETE | `/api/v1/model-connections/{id}` |
+| API-38 | POST | `/api/v1/model-connections/{id}/test` |
+| API-39 | GET | `/api/v1/model-connections/{id}/models` |
+
+**G. 派工（2 个，B5）**
+| ID | 方法 | 路径 |
+|---|---|---|
+| API-40 | POST | `/api/v1/companies/{cid}/assignments/preview` |
+| API-41 | GET | `/api/v1/assignments/{decision_id}` |
+
+**H. 配置导入导出（3 个，B4）**
+| ID | 方法 | 路径 |
+|---|---|---|
+| API-42 | GET | `/api/v1/companies/{cid}/export` |
+| API-43 | POST | `/api/v1/config/import?dry_run=true` |
+| API-44 | POST | `/api/v1/config/import` |
+
+**I. 审计（1 个，B5）**
+| ID | 方法 | 路径 |
+|---|---|---|
+| API-45 | GET | `/api/v1/audit?actor_type=&action=&from=&to=` |
+
+**批次汇总（与 §12 验收严格一致）**：B1 = 0 个新增（重构 + 安全中间件）；B2 = 16；B3 = 14；B4 = 8；B5 = 7；合计 **45**。
+> 修正说明：API-25 依赖 B4 的 `prompt_revision`、API-26 依赖 B5 的 `audit_log`，v1.1 已把这两个接口从 B3 移到对应批次，避免"接口先行、表未建"的返工。
+**兼容保留（不计入 45）**：`GET /api/health`、`GET /api/tasks`、`GET /api/employees/{model}/health`（M0 遗留，行为不变）。
 
 ### 7.3 关键示例
 
@@ -248,9 +352,12 @@ POST /api/v1/companies/cmp_01/assignments/preview
 {"capabilities":["coding.python","test.unit"],"tools":["file.write"],"risk_level":"medium","budget_usd":0.5}
 → 200 {"decision_id":"asg_01",
   "candidates":[{"employee_id":"emp_dev","score":0.82,
-    "factors":{"position_match":1.0,"review_chain_distance":0.9,"performance":0.7,"cost":0.6,"load":0.9}}],
+    "factors":{"position_match":1.0,"review_chain_distance":0.9,"performance":0.5,"cost":0.6,"load":0.5}}],
   "excluded":[{"employee_id":"emp_ceo","reason":"capability_missing:tool.file.write"}],
-  "reviewer":{"employee_id":"emp_qa","cross_model":true,"reason":"汇报链最近上级；跨供应商"}}
+  "reviewer":{"employee_id":"emp_qa","cross_model":true,"independence":"T1",
+              "reason":"独立审查岗（质量部，can_review）× 跨部门 × 跨供应商"},
+  "data_quality":{"performance":"unavailable","load":"unavailable"},
+  "score_note":"m1.0 暂定权重；performance/load 为中性值 0.5，不构成真实绩效评估"}
 ```
 
 **连接测试**
@@ -279,7 +386,21 @@ packages/agent_core/    capabilities.py(能力三层交集)
 
 ## 8. 前端设计
 
-技术栈沿用：React 18 + TS + Vite + Tailwind v4 + zustand + react-router-dom。**M1 新增 3 个依赖（待确认 D-1）**：shadcn/ui、@tanstack/react-query、@xyflow/react。
+### 8.0 前端依赖清单（D-1 已确认，B1 一次性装好并锁版本）
+
+| 类别 | 包 | 用途 | 安装时机 |
+|---|---|---|---|
+| 已有 | `react@18` `react-dom@18` `react-router-dom@7` `zustand@5` `tailwindcss@4` `@tailwindcss/vite@4` | 基础 | M0 |
+| 已有 | `vite@8` `typescript` `@vitejs/plugin-react` `oxlint` | 构建 | M0 |
+| 新增 | `@tanstack/react-query@5` | 服务端状态 | B1 |
+| 新增 | `@xyflow/react@12` | 组织图 | B2 |
+| 新增 | `react-hook-form@7` + `@hookform/resolvers` + `zod@3` | 表单与客户端校验 | B1 |
+| 新增 | `class-variance-authority` `clsx` `tailwind-merge` `lucide-react` | shadcn/ui 运行时依赖 | B1 |
+| 新增 | `@radix-ui/react-dialog` `@radix-ui/react-select` `@radix-ui/react-tabs` `@radix-ui/react-toast` `@radix-ui/react-dropdown-menu` | shadcn/ui 组件底层（按实际使用的组件逐步加） | B1–B3 |
+| 新增（开发） | `vitest` `@testing-library/react` `jsdom` | 纯函数/组件单测（可选，B3 起） | B3 |
+
+> 说明：**shadcn/ui 不是 npm 依赖**，而是 CLI 把组件源码写入 `components/ui/`，因此清单里列的是它需要的 Radix/CVA/clsx/tailwind-merge/lucide 运行时包。`npm ci` 必须能复现（lockfile 提交）。
+> 不引入：Tailwind 插件市场组件库、Ant Design、MUI、Playwright（重型，需单独批准）。
 
 ### 8.1 路由与页面
 ```
@@ -359,11 +480,26 @@ def resolve_model(employee, company):
 ```
 **刻意不做全公司模型池自动兜底**：否则"谁在干活、用什么模型、花谁的钱"不可解释，破坏成本绩效中心的设计目标。
 
+**健康缓存与失效规则（v1.1 补充，B3 实现）**：
+| 项 | 规则 |
+|---|---|
+| 缓存键 | `connection_id + 配置指纹`（provider/model/base_url/key_ref 的哈希），配置一改指纹变、缓存自动失效 |
+| 正缓存 TTL | 成功结果 300s |
+| 负缓存 TTL | 失败结果 60s（避免故障连接每次派工都重试打网络） |
+| 命中来源标注 | 派工预览与详情返回 `health_source: "cache" | "live"`，前端显示"缓存 3 分钟前" |
+| 主动失效 | 手动连接测试、PATCH 连接配置、切换密钥引用、服务启动时清空内存缓存 |
+| 进程重启 | 内存缓存不持久化；用 `model_connection.last_health_*` 仅作展示，不作为判断依据 |
+| 并发 | 同一 connection 的并发健康检查合并（single-flight），避免放大请求 |
+
 ### 9.3 切换模型流程
 `PUT /employees/{id}/model-binding` → 校验连接同公司/启用/引用可解析（不实际调用）→ 能力差异检测（新模型 ∩ 员工已声明能力，缺口则 200 + warnings）→ 事务内更新 employee + 写 model_switch_log + audit_log → 前端刷新（档案不变、历史 run 带旧模型名、新 run 用新模型）。
 
 ### 9.4 能力三层（不混淆）
 有效能力 = **Adapter 能力 ∩ 模型能力（catalog 元数据）∩ 授权能力（tools_allowed + 权限档案）**。任一层缺失即不可派单，派工预览必须给出具体缺失项（如 `capability_missing:tool.file.write`），不能只说"不匹配"。
+
+补充说明：
+- `employee.capabilities_declared` **只作创建时的审计快照**，不参与任何计算；运行时一律以 Adapter 实测 + catalog 元数据为准
+- `position.review_capability_tags` 用于审查场景的**领域匹配加分与展示**；RC-4 的硬性覆盖判断仍以员工有效能力为准（避免岗位标签与实际能力脱节）
 
 ### 9.5 解耦测试用例（B3 必须落地）
 | 编号 | 场景 | 期望 |
@@ -373,6 +509,35 @@ def resolve_model(employee, company):
 | A3-3 | 切到能力更弱的模型 | 返回 warnings，且不再出现在需要该能力的候选中 |
 | A3-4 | 切到已停用连接 | 422 |
 | A3-5 | 删除被引用连接 | 409 `BR_MODEL_IN_USE`（提示引用数） |
+| A3-6 | 切换后查历史成本 | 按 `usage_record.employee_id` 归因不变，model 仍是旧值；`agent_run.model` 不被改写 |
+| A3-7 | 主模型健康失败 | 走备用并在返回中带 `role=fallback` + warning；备用也失败则 `no_model` 拒绝派单 |
+| A3-8 | 健康缓存过期 | TTL 内不重复请求（用 mock 计数断言）；配置变更后立即失效 |
+
+### 9.6 提示词文件与数据库一致性协议（B4，v1.1 新增）
+
+问题：文件系统与数据库无法共享事务，必须显式定义失败窗口与补偿。
+
+**写入顺序（文件优先 + 原子落盘）**：
+```
+1. 计算新版本号 N = max(existing)+1（DB 查询，事务外）
+2. 写临时文件 data/prompts/employees/<id>/.tmp-<uuid>.md → flush+fsync
+3. os.replace(tmp, vNNNN.md) 原子改名（同分区）
+4. 计算 SHA-256
+5. DB 事务：INSERT prompt_revision(version=N, hash) + UPDATE employee.prompt_active_version=N + audit
+6. 若第 5 步失败：删除刚写的文件（best-effort），返回 500；若删除也失败 → 留孤儿文件，由对账脚本清理
+```
+**激活版本**：只改 DB `is_active` 指针，不动文件（天然安全）。
+**读取**：先查 DB 拿 `file_path + content_hash`，读文件后校验哈希；不匹配 → `BR_PROMPT_HASH_MISMATCH`，不静默降级。
+**对账脚本** `scripts/reconcile_prompts.py`（B4 交付）：
+- 扫描 `data/prompts/**` 与 `prompt_revision`，报告三类异常：孤儿文件（DB 无记录）、缺失文件（DB 有记录但文件不在）、哈希不符
+- 默认只报告不修改；`--fix` 才删除孤儿文件（需二次确认参数 `--yes`）
+**测试**（B4）：
+| 编号 | 场景 | 期望 |
+|---|---|---|
+| P-1 | 模拟 DB 写入失败 | 文件被清理或可被对账脚本识别为孤儿 |
+| P-2 | 手工删除激活版本文件 | 加载抛 `BR_PROMPT_HASH_MISMATCH` |
+| P-3 | 手工改文件内容 | 哈希校验失败 |
+| P-4 | 对账脚本 | 三类异常都能正确报告（造 3 个样本） |
 
 ---
 
@@ -415,27 +580,87 @@ class AssignmentRequest:
 score = 0.30*position_match + 0.20*review_chain_distance + 0.20*performance
       + 0.15*cost_efficiency + 0.15*load
 ```
-- `performance` 在 M1 无数据时取中性 0.5 并标注 `data_insufficient`（**不假装有绩效数据**，M3 接真实指标）
-- `load` M1 恒 0.5，M2 接真实在跑任务数
-- 权重常量带 `algorithm_version`，改权重必须升版本，历史决策可追溯
+- **数据真实性声明（v1.1 明确）**：`performance` 与 `load` 在 M1 **没有真实数据**，一律取中性 0.5。响应必须同时返回：
+  ```json
+  "data_quality": {"performance": "unavailable", "load": "unavailable"},
+  "score_note": "m1.0 暂定权重；performance/load 为中性值 0.5，不构成真实绩效评估"
+  ```
+  前端在候选人卡片上用灰色 `估算` 徽标显示这两项，**不得渲染成真实评分**；测试断言这两个字段存在且取值正确
+- 权重常量带 `algorithm_version = "m1.0"`，**标注为暂定规则**（D-3），改权重必须升版本，历史决策可追溯
 - 每个因子输出 0~1 原始分与权重贡献，前端直接画条形图
 
-### 10.5 审查链推导（伪代码）
+### 10.5 审查人推导（v1.1 重设计：修正 v1.0 的逻辑漏洞）
+
+**v1.0 的漏洞**：只沿 `doer.reports_to` 向上找。若 QA 汇报给开发（q=qa1 → dev1），而 dev1 执行任务，向上永远找不到 qa1，导致"测试员审查开发员"这一核心场景失效；同时该逻辑无法覆盖"测试员执行、由谁审查"。
+
+**新规则：候选池 + 硬约束 + 分级排序**（不再只沿一条链找）。
+
+#### 硬约束（任一不满足即排除，记录 `excluded_reason`）
+| 编号 | 约束 |
+|---|---|
+| RC-1 | `reviewer.id != doer.id`（BR-10） |
+| RC-2 | `reviewer.status == active` 且与 doer 同公司 |
+| RC-3 | **具备审查资格**：主岗或任一兼任岗的 `can_review == true` |
+| RC-4 | **能力覆盖**：reviewer 有效能力覆盖 `request.required_capabilities`（看得懂才能审） |
+| RC-5 | **独立性**：reviewer 不得是 doer 的下级（doer 出现在 reviewer 的 `reports_to` 上溯链中）。公司策略 `review_policy.allow_subordinate_review=false` 时**排除**；为 true 时保留但打 `subordinate_review` 警告 |
+| RC-6 | reviewer 不在 `request.exclude_employee_ids` |
+| RC-7 | reviewer 有可用模型（§9.2 解析成功） |
+
+#### 分级（tier 越小越优先；同级内跨模型优先，再按汇报链距离/Hash 稳定排序）
+| Tier | 定义 | 说明 |
+|---|---|---|
+| **T1** | `can_review` 岗 + **不同部门** + 跨模型 | 最理想：独立审查岗、组织独立、模型独立 |
+| **T2** | `can_review` 岗 + 同部门 + 跨模型 | 同部门独立 QA，可接受 |
+| **T3** | `can_review` 岗 + 不同部门 + 同模型 | 组织独立但模型相同 |
+| **T4** | `can_review` 岗 + 同部门 + 同模型 | 最弱的独立审查岗 |
+| **T5** | 管理链上级（`reports_to` 上溯，`can_review=true`） | 上级审查下级；不是独立 QA，标注 `management_review` |
+| **T6** | 兜底：非审查岗但能力覆盖 + 不同部门 | 仅在无以上候选时使用，标注 `degraded_reviewer` |
+| — | 无候选 | 返回 `null` + 原因码（见下），**绝不硬凑** |
+
+> 设计取舍：把"独立审查岗"排在"管理链上级"之前，是因为产品要求"开发员接受测试员独立验证"，管理者的审查容易变成走过场；但管理者仍可作为兜底，保证小团队不瘫痪。
+
+#### 伪代码
 ```python
-def derive_reviewer(doer, request, company):
-    for candidate in walk_reports_to_up(doer, company, max_depth=5):
-        if candidate.id == doer.id or candidate.status != "active": continue
-        if not capability_covers(candidate, request.required_capabilities): continue
-        return ReviewerDecision(candidate, cross_model=provider_of(candidate) != provider_of(doer),
-                                reason=f"汇报链第 {n} 层上级；跨模型/同模型")
-    pool = [e for e in active_employees(company)
-            if e.department_id != doer.department_id
-            and capability_covers(e, request.required_capabilities)]
-    pool.sort(key=lambda e: (provider_of(e) == provider_of(doer), e.id))  # 跨模型优先
-    if pool: return ReviewerDecision(pool[0], cross_model=..., reason="独立审查池（跨部门）")
-    return ReviewerDecision(None, reason="无可用审查人：需用户指定或放宽能力要求")
+def derive_reviewer(doer, request, company) -> ReviewerDecision:
+    pool, excluded = [], []
+    for e in active_employees(company):
+        if e.id == doer.id: excluded.append((e, "self")); continue
+        if not has_review_position(e): excluded.append((e, "no_review_role")); continue
+        if not capability_covers(e, request.required_capabilities):
+            excluded.append((e, "capability_missing")); continue
+        if is_subordinate_of(e, doer):
+            if not company.review_policy.allow_subordinate_review:
+                excluded.append((e, "subordinate_not_allowed")); continue
+            e.warnings.append("subordinate_review")
+        if e.id in request.exclude_employee_ids: excluded.append((e, "excluded")); continue
+        if not resolve_model(e): excluded.append((e, "no_model")); continue
+        pool.append((e, tier_of(e, doer)))          # T1..T6
+    if not pool:
+        return ReviewerDecision(None, reason_code=classify_empty(excluded), excluded=excluded)
+    pool.sort(key=lambda t: (t.tier, not t.cross_model, org_distance(doer, t.e), t.e.id))
+    best = pool[0]
+    return ReviewerDecision(best.e, independence=best.tier, cross_model=best.cross_model,
+                            warnings=best.e.warnings + best.degraded_notes,
+                            reason=explain(best), excluded=excluded)
 ```
-约束：reviewer ≠ doer（BR-10）；同部门"开发-测试"配对允许但跨模型优先；审查人只是"建议"，最终任命权在用户。
+`tier_of()` 判定顺序：不同部门/同部门 × 跨模型/同模型 → T1..T4；否则若在 `reports_to` 上溯链中 → T5；否则 T6。
+
+#### 找不到时的原因码（必须返回明确原因 + 建议）
+| reason_code | 含义 | suggestion |
+|---|---|---|
+| `no_eligible_reviewer` | 公司内无任何满足 RC-1..RC-7 的人 | 增加具备 `can_review` 的岗位/员工，或手动指定 |
+| `only_subordinate_candidates` | 唯一合格者是 doer 的下级，被策略排除 | 开启 `allow_subordinate_review`，或指定其他审查人 |
+| `capability_not_covered` | 有审查岗但能力不覆盖 | 提升审查人能力授权，或降低任务能力要求 |
+| `company_has_single_employee` | 公司只有 1 人 | 至少招聘 1 名审查岗员工 |
+| `doer_has_no_review_role` | 执行人自己是唯一审查岗 | 增加第二名审查岗员工 |
+
+#### 两种执行场景的期望结果
+| 场景 | 组织 | 期望 |
+|---|---|---|
+| **开发员执行** | dev1（研发部/模型A/can_review=false）、qa1（质量部/模型B/can_review=true）、cto（管理/模型A/can_review=true） | 审查人 = **qa1**（T1：独立岗+跨部门+跨模型）；不是 cto（T5） |
+| **测试员执行** | 同上，但 dev1 具备 `can_review=true` | 审查人 = **dev1**（T1：不同部门+跨模型），实现双向交叉验证；若 dev1 无 `can_review`，则 = cto（T5） |
+
+约束回顾：审查人只是**建议**，最终任命权在用户；M1 不执行审查，M3 才产生审查报告。
 
 ### 10.6 管理者与审批边界
 | 角色 | 能做 | 绝对不能做 |
@@ -449,14 +674,18 @@ def derive_reviewer(doer, request, company):
 ### 10.7 M2 衔接方式
 M2 的 task-engine 派工时调用同一个 `assignment.preview()` 拿候选集，把候选清单（含理由）注入 CEO Agent 的 prompt；CEO 选择若不在候选集内 → 拒绝并重新规划。这样"组织影响分配"在 M2 自然成立，无需重写。
 
-### 10.8 派工算法验收
+### 10.8 派工与审查人验收（B5 必须全过）
 | 编号 | 给定 | 期望 |
 |---|---|---|
-| B8-1 | dev1（模型A）+ qa1（模型B，汇报给 dev1） | 候选含两者；审查人 ≠ 执行人 |
-| B8-2 | dev1 权限 file_ops=[read] | 被 `tool_denied` 排除且理由明确 |
-| B8-3 | 只有 dev1 | 审查人为空 + 原因，不硬凑 |
-| B8-4 | dev1(A)、dev2(B) 同岗 | 跨模型审查优先 |
+| B8-1a **开发员执行** | dev1（研发部/模型A/can_review=false）、qa1（质量部/模型B/can_review=true）、cto（管理/模型A/can_review=true） | 审查人 = qa1，`independence=T1`、`cross_model=true`；不含 cto |
+| B8-1b **测试员执行** | qa1 执行，dev1 具备 `can_review=true`（不同部门、模型A） | 审查人 = dev1，`independence=T1`、`cross_model=true`（交叉验证）；dev1 无审查资格时退化为 cto（T5） |
+| B8-2 | dev1 权限 file_ops=[read]，任务需 file.write | dev1 被 `tool_denied:file.write` 排除，理由明确 |
+| B8-3 | 只有 dev1 一人 | 审查人 `null`，`reason_code=company_has_single_employee`，附 suggestion |
+| B8-4 | dev1(A)、dev2(B) 同岗同部门、均可审 | 跨模型者优先（T2 > T4） |
 | B8-5 | 任务 critical，公司策略 max=high | 全员 `risk_exceeded`，提示"需提升策略或用户直接指派" |
+| B8-6 | 唯一合格审查人是 doer 的直接下属 | `reason_code=only_subordinate_candidates`，不选下属；开启策略后才选并带 `subordinate_review` 警告 |
+| B8-7 | 审查人能力不覆盖任务 | `reason_code=capability_not_covered`，不选不合格者 |
+| B8-8 | 派工预览响应 | 必含 `data_quality` 与 `score_note`；`performance/load` 为 0.5 且标注 unavailable |
 
 ---
 
@@ -481,7 +710,12 @@ M2 的 task-engine 派工时调用同一个 `assignment.preview()` 拿候选集�
 ```python
 merge_strictest(...) -> {item: {"value": v, "source": "company|position|employee", "chain": [...]}}
 ```
-测试 ≥12 组，必须包含"员工试图放宽被拒"（`PERMISSION_WIDEN_DENIED`）、"多岗并集再与公司交集"、"空集合语义=不允许而非不限制"。
+**语义澄清（修正 v1.0 冲突）**：
+- 岗位默认层：同员工多岗取**并集**，再与公司策略取交集
+- 员工覆盖层：**只能收窄，永远不能放宽**（BR-13）
+- 因此"给某开发者开放 file_write"必须改**岗位默认**（且不超过公司策略），不能靠员工覆盖实现。管理接口对员工层的放宽请求返回 `PERMISSION_WIDEN_DENIED`
+
+测试 ≥12 组，必须包含"员工试图放宽被拒"、"多岗并集再与公司交集"、"空集合语义=不允许而非不限制"、"员工覆盖等于岗位默认（不变）"。
 
 ### 11.3 密钥管理
 存储只接受 `env:<VAR>`/`dpapi:<blob>`/`keyring:<service>:<user>`，正则拒绝 `sk-` 开头疑似明文（422）；运行时由 `credentials.py` 解析，随用随取；响应只返回 ref 与 `has_credential`；日志统一脱敏（`sk-[A-Za-z0-9]{8,}`、`Bearer\s+\S+`、`api[_-]?key\s*[:=]\s*\S+`）；导出包只含 ref；连接测试只返回 ok/latency/error_code。
@@ -490,7 +724,7 @@ merge_strictest(...) -> {item: {"value": v, "source": "company|position|employee
 | action_type | 默认风险 | 决策 |
 |---|---|---|
 | file_read（工作区内） | low | allow |
-| file_write（工作区内） | medium | approval（可在员工档案放宽，但不得超公司策略） |
+| file_write（工作区内） | medium | approval（放宽只能改**岗位默认**且不超公司策略；员工层只能保持或加严） |
 | file_delete | high | approval（不可放宽） |
 | shell_exec | high | approval（黑名单直接 deny） |
 | network_upload | high | approval |
@@ -502,11 +736,28 @@ merge_strictest(...) -> {item: {"value": v, "source": "company|position|employee
 company.create/update/archive｜department.create/update/move/delete｜position.create/update/delete｜employee.create/update/enable/disable/delete｜employee.model_binding.update｜employee.permission_overrides.update｜prompt.publish/activate｜model_connection.create/update/delete/test｜config.export/import｜assignment.preview。
 只增不改：无 UPDATE/DELETE 路由；ORM 事件监听阻止 update。
 
-### 11.6 越权测试（10 项，必须全绿）
-S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不存在｜S-3 `api_key_ref` 填明文 → 422｜S-4 连接失败响应/日志无密钥片段（正则断言）｜S-5 导出包 grep 不到 `sk-`/`Bearer`｜S-6 部门成环 → 409 且库无变化｜S-7 删非空部门 → 409 员工不变｜S-8 并发改同一员工 → 409 `CONFLICT_STALE`｜S-9 恶意 zip 路径穿越 → 拒绝｜S-10 提示词被篡改 → `BR_PROMPT_HASH_MISMATCH`
+### 11.6 越权与本地接口测试（14 项，必须全绿）
+S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不存在｜S-3 `api_key_ref` 填明文 → 422｜S-4 连接失败响应/日志无密钥片段（正则断言）｜S-5 导出包 grep 不到 `sk-`/`Bearer`｜S-6 部门成环 → 409 且库无变化｜S-7 删非空部门 → 409 员工不变｜S-8 并发改同一员工 → 409 `CONFLICT_STALE`｜S-9 恶意 zip 路径穿越 → 拒绝｜S-10 提示词被篡改 → `BR_PROMPT_HASH_MISMATCH`｜**S-11** 写请求 `Origin: http://evil.com` → 403 `UNTRUSTED_REQUEST`｜**S-12** `Host: evil.com` → 400（DNS rebinding 防护）｜**S-13** 写请求缺 `X-AgentOS-Client` 头 → 403｜**S-14** `scripts/run_api.py` 传 `0.0.0.0` → 启动即拒绝（除非显式 `AGENTOS_ALLOW_EXTERNAL=1`）
 
 ### 11.7 已知限制（诚实声明）
-本地单用户无认证（只监听 127.0.0.1 缓解，账号体系 M5）；`env:` 依赖用户正确设置环境变量；权限是能力/范围级非行级 ACL（工作空间细粒度在 M2）；审计防篡改靠应用层（本地 SQLite 用户可直接改）。
+本地单用户无认证（只监听 127.0.0.1 + Origin/Host 校验缓解，账号体系 M5）；`env:` 依赖用户正确设置环境变量；权限是能力/范围级非行级 ACL（工作空间细粒度在 M2）；审计防篡改靠应用层（本地 SQLite 用户可直接改）；`X-AgentOS-Client` 头只能挡住浏览器跨站简单请求与表单提交，挡不住本机恶意进程（M5 账号体系解决）。
+
+### 11.8 本地管理接口防护（v1.1 新增，B1 实施）
+
+威胁模型：本地 API 监听端口后，用户浏览器打开的**任意网页**都可能向 `http://127.0.0.1:8000` 发起跨站写请求（CSRF/CSWSH），或通过 DNS rebinding 伪造 Host 访问。
+
+| 控制 | 规则 | 失败响应 |
+|---|---|---|
+| 监听地址 | 默认 `127.0.0.1`；`scripts/run_api.py` 硬编码；`--host 0.0.0.0` 需 `AGENTOS_ALLOW_EXTERNAL=1` 且启动打印醒目警告 | 拒绝启动 |
+| Origin 白名单 | 写请求的 `Origin`（缺失时看 `Referer`）必须 ∈ {`http://localhost:5173`, `http://127.0.0.1:5173`} ∪ `AGENTOS_TRUSTED_ORIGINS` | 403 `UNTRUSTED_REQUEST` |
+| Host 校验 | `Host` 必须是 `localhost[:port]` 或 `127.0.0.1[:port]`（允许 `[::1]`） | 400 `INVALID_HOST` |
+| 自定义头 | 写请求必须带 `X-AgentOS-Client: web`（触发 CORS 预检，普通表单/图片请求无法伪造） | 403 |
+| Fetch Metadata | `Sec-Fetch-Site: cross-site` 的写请求直接拒绝 | 403 |
+| 可选令牌 | 设置 `AGENTOS_LOCAL_TOKEN` 后，写请求还需 `X-AgentOS-Token`（供脚本/CLI 客户端） | 401 |
+| CORS | 仅允许白名单 Origin + `X-AgentOS-Client` 头；预检缓存 600s | 预检失败 |
+
+实现位置：`apps/api/security/local_guard.py`（FastAPI 依赖，挂在写路由的 router 级依赖上，而不是全局中间件，便于 M5 替换为账号鉴权）。
+测试：S-11..S-14 + 一个"正常前端请求放行"的对照用例（防误杀）。
 
 ---
 
@@ -514,37 +765,61 @@ S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不�
 
 每批结束必须：`ruff` 全绿 → `pytest` 全绿 → `npm run build` 通过 → 更新 CHANGELOG → 提交一次可回滚 commit。每批 3–6 个 commit。
 
-### B1 地基（不写新功能，先还债）
-**范围**：① Alembic（`alembic.ini` + `migrations/` + `m0_baseline` + batch 模式）② `pyproject.toml` 加 `[build-system]`，`pip install -e .` 可用 ③ API 拆 `routers/`+`deps.py`+`errors.py`，`on_event`→`lifespan`，统一错误包络 ④ `tests/conftest.py`（tmp_engine/client/actor/seeded_company）⑤ `scripts/backup_db.py` ⑥ 前端装 shadcn/ui 基础组件 + TanStack Query + react-hook-form + zod，建 `api/client.ts` ⑦ CI 加迁移双路径测试。
+### B1 地基（不写业务功能，先还债 + 补本地接口防护）
+**范围**：
+① Alembic（`alembic.ini` + `migrations/` + `m0_baseline` + batch 模式）
+② `pyproject.toml` 加 `[build-system]`，`pip install -e .` 可用
+③ API 拆 `routers/`+`deps.py`+`errors.py`，`on_event`→`lifespan`，统一错误包络与分页
+④ `tests/conftest.py`（tmp_engine / client / actor / seeded_company）
+⑤ `scripts/backup_db.py`
+⑥ **`apps/api/security/local_guard.py` + `scripts/run_api.py`**：Host/Origin/自定义头/Fetch-Metadata 校验，默认只监听 127.0.0.1（§11.8）
+⑦ 前端按 §8.0 清单装依赖（shadcn/ui + TanStack Query + RHF + zod），建 `api/client.ts` 与 `queryClient`
+⑧ CI 加迁移双路径测试 + 安全用例
 
-**验收**：空库 `alembic upgrade head` 成功；M0 库 `stamp m0_baseline && upgrade head` 后 schema 与新库一致；`pytest` 7 个旧测试全过 + 迁移测试过；`/api/health`、`/api/tasks` 行为与 M0 一致；`npm run build` 通过。
-**风险**：autogenerate 对 SQLite 噪音大 → 手工裁剪基线 + schema diff 脚本。
+**验收**：空库 `alembic upgrade head` 成功；M0 库 `stamp m0_baseline && upgrade head` 后 schema 与新库一致；`pytest` 7 个旧测试全过 + 迁移测试 + S-11..S-14 全过；`/api/health`、`/api/tasks` 行为与 M0 一致；`npm run build` 通过。
+**新增测试下限**：6 个（迁移 2 + 本地防护 4）。
+**风险**：autogenerate 对 SQLite 噪音大 → 手工裁剪基线 + schema diff 脚本；Origin 校验误杀开发环境 → 用"正常请求放行"对照用例兜底。
 
-### B2 组织域
-**范围**：迁移 `m1_b2_org`；`packages/organization/`（companies/departments/positions/tree）；规则 BR-02/03/04/05；API 公司 5 + 部门 6（含 org-tree）+ 岗位 5；前端组织设置页 + 组织图只读。
-**验收**：3 层部门 + 2 岗位 org-tree 结构/depth 正确；成环 409 库无变化；第 9 层被拒；删非空部门 409 提示人数；重名 409；30 节点渲染无报错；新增 ≥10 个集成测试（每条规则 1 正 1 反）。
+### B2 组织域（API-01..16）
+**范围**：迁移 `m1_b2_org`；`packages/organization/`（companies/departments/positions/tree）；规则 BR-02/03/04a-e；API 公司 5 + 部门 6（含 org-tree）+ 岗位 5（含 `can_review`）；前端组织设置页 + 组织图只读（**只渲染部门/岗位节点，员工节点在 B3 接入**）。
 
-### B3 员工域 + 模型连接（解耦核心）
-**范围**：迁移 `m1_b3_employee_model`（含 `agent_run.employee_id`）；`employees.py`/`model_connections.py`/`capabilities.py`；`credentials.py` + `catalog.py`；API 员工 12 + 连接 6（含真实测试）；前端员工列表/向导/详情（档案+模型）/模型连接页。
-**验收**：向导落库 + 审计；A3-1..A3-5 全过；真实 DeepSeek 连接测试返回 latency；响应/日志 grep 无 `sk-`；新建 2 员工并切换模型刷新后一致；新增 ≥18 个测试（含 5 个解耦用例、1 个 live 标记）。
-**风险**：真实测试耗 token → `max_tokens=8` + `@pytest.mark.live` 默认跳过。
+**验收**：3 层部门 + 2 岗位 org-tree 结构/depth 正确；成环 409 库无变化；第 9 层被拒；重名 409；30 节点渲染无报错；新增 ≥10 个集成测试（每条规则 1 正 1 反）。
+**依赖修正（v1.1）**：v1.0 要求 B2 验收"含员工部门删除 409 提示人数"，但 employee 表在 B3 才建 → **该验收项移到 B3**；B2 只校验"含子部门不可删"，删除接口预留 `BR_DEPARTMENT_HAS_EMPLOYEES` 分支并写 TODO 注释。
 
-### B4 提示词外置 + 导入导出
-**范围**：迁移 `m1_b4_prompt`；文件存储 `data/prompts/employees/<id>/vNNNN.md`（YAML frontmatter：role/goal/rules/tools_policy）+ SHA-256；`prompts.py` 服务（create/activate/diff/load）；`load_active_prompt()` 供 M2 复用；`config_io.py`（zip 含 manifest/company/org/employees/prompts，dry-run，事务，路径穿越防护）；API 提示词 4 + 配置 3；前端编辑器 + 导入导出向导。
-**验收**：连续保存 3 次 = 3 个文件且 v1 哈希不变；激活后指针正确、旧文件仍在；手工改文件 → 哈希报错；导出 zip 无密钥；dry-run 计数正确不写库；往返导入导出结构与哈希 100% 一致；路径穿越被拒；新增 ≥14 测试。
+### B3 员工域 + 模型连接（解耦核心，API-17..24 + 34..39 共 14 个）
+**范围**：迁移 `m1_b3_employee_model`（employee / employee_position / model_connection / model_switch_log + **`usage_record.employee_id`**）；`employees.py`/`model_connections.py`/`capabilities.py`；`credentials.py` + `catalog.py`；健康缓存（§9.2）；API 员工 8（17–24）+ 连接 6（34–39）；前端员工列表/向导/详情（档案+模型）/模型连接页；**补 B2 的"含员工部门不可删"校验**。
 
-### B5 权限 + 派工预览 + 审计 + 组织图编辑
-**范围**：迁移 `m1_b5_assignment_audit`；`packages/permissions/`（effective/policy/audit）；`organization/assignment.py`（硬过滤 8 + 5 因子 + 审查链 + algorithm_version）；API effective-permissions/permission-overrides/capabilities/assignments/preview/audit；前端权限 Tab、派工台、组织图可编辑、审计页。
-**验收**：三层交集 12 组全绿；B8-1..B8-5 场景全过；每次 preview 落 assignment_decision 含 factors 与版本；`PERMISSION_WIDEN_DENIED` + 审计；12 类事件各触发一次且无更新接口；拖拽 10 次无错乱；新增 ≥20 测试。
+**验收**：
+- 向导落库 + 审计；新建 2 员工并切换模型刷新后一致
+- A3-1..A3-8 全过（含：历史 run 的 `model` 与 `usage_record.model` 不被改写、成本按 `employee_id` 归因、主→备降级、健康缓存 TTL/失效）
+- 真实 DeepSeek 连接测试返回 latency（`@pytest.mark.live`，手工执行）
+- 响应/日志 grep 无 `sk-`；员工改名/重建后历史成本仍可归因
+- 含员工部门删除 → 409（从 B2 移入）
+
+**新增测试下限**：20 个（解耦 8 + 连接 5 + 凭据 3 + 组织联动 2 + 迁移 2），其中 1 个 live 标记。
+**风险**：真实测试耗 token → `max_tokens=8` + live 默认跳过；`employee_id` 双写遗漏 → 在 `AgentRun` 工厂函数统一赋值，禁止散落各处。
+
+### B4 提示词外置 + 导入导出（API-25、30..33、42..44 共 8 个）
+**范围**：迁移 `m1_b4_prompt`；文件存储 `data/prompts/employees/<id>/vNNNN.md`（YAML frontmatter：role/goal/rules/tools_policy）+ SHA-256；**§9.6 一致性协议（临时文件→fsync→原子改名→DB 事务→失败补偿）**；`prompts.py`（create/activate/diff/load）；`load_active_prompt()` 供 M2 复用；`scripts/reconcile_prompts.py` 对账；`config_io.py`（zip：manifest/company/org/employees/prompts，dry-run，单事务，路径穿越防护）；API 提示词 5（含 API-25 版本列表）+ 配置 3；前端编辑器 + 导入导出向导。
+
+**验收**：连续保存 3 次 = 3 个文件且 v1 哈希不变；激活后指针正确、旧文件仍在；手工改文件 → 哈希报错；模拟 DB 失败 → 孤儿文件可被对账脚本识别；导出 zip 无密钥；dry-run 计数正确不写库；往返导入导出结构与哈希 100% 一致；路径穿越被拒。
+**新增测试下限**：16 个（版本 5 + 一致性 P-1..P-4 + 导入导出 5 + 安全 2）。
+
+### B5 权限 + 派工预览 + 审计 + 组织图编辑（API-26..29 + 40..41 + 45 共 7 个）
+**范围**：迁移 `m1_b5_assignment_audit`；`packages/permissions/`（effective/policy/audit）；`organization/assignment.py`（硬过滤 8 + 5 因子 + **§10.5 新审查人规则** + algorithm_version）；API effective-permissions/permission-overrides/capabilities、员工审计（API-26）、assignments/preview、assignments/{id}、audit；前端权限 Tab、派工台（含 data_quality 徽标）、组织图可编辑、审计页。
+
+**验收**：三层交集 12 组全绿；**B8-1a/1b/2/3/4/5/6/7/8 全过**；每次 preview 落 assignment_decision（含 factors、reviewer、independence、algorithm_version、data_quality）；`PERMISSION_WIDEN_DENIED` + 审计；12 类事件各触发一次且无更新接口；拖拽 10 次无错乱（含 BR-04a-e 校验）。
+**新增测试下限**：26 个（权限 12 + 派工/审查 9 + 审计 3 + 前端纯函数 2）。
+**依赖说明**：B5 依赖 B2 的 `position.can_review` 与 B3 的 `employee.reports_to`/能力数据，均为已交付项，无反向依赖。
 
 ### B6 端到端验收
 **三个场景必须全过**：
-1. **从零建公司**：公司→2 部门→3 岗位→2 连接→3 员工（含兼任）→组织图正确→导出→导入新库→结构一致
-2. **解耦验证**：A 切换模型→历史保留→同连接员工 B 不串账→派工预览中 A 的能力缺口被正确排除
-3. **权限与派工**：限制某员工 file.write→派"需写文件"任务→被硬过滤→审查人推导正确且跨模型优先
+1. **从零建公司**：公司→2 部门→3 岗位（含 1 个 `can_review`）→2 连接→3 员工（含兼任）→组织图正确→导出→导入新库→结构一致
+2. **解耦验证**：A 切换模型→历史 `agent_run.model`/`usage_record.model` 保持旧值→同连接员工 B 不串账→派工预览中 A 的能力缺口被正确排除
+3. **权限与派工**：限制某员工 file.write→派"需写文件"任务→被硬过滤→**开发员执行时审查人 = QA（T1），测试员执行时审查人 = 开发（T1）**，且均 ≠ 执行人、跨模型优先
 
 **交付**：`docs/testing/M1_TEST_REPORT.md`（真实命令 + 输出摘要 + 失败项 + 未测项）、`M1_FINAL_HANDOFF.md`（对齐 M0 的 14 项格式，单文档）、更新 README/FEATURE_MATRIX/ROADMAP、`M1` tag、`scripts/demo_m1_*.py`。
-**门槛**：全量 pytest ≥50 通过（含 M0 的 7 个）；ruff 全绿；前端构建通过；三场景真实跑通有日志；无 P0/P1 缺陷。
+**门槛**：全量 pytest **≥75** 通过（M0 的 7 个 + B1 6 + B2 10 + B3 20 + B4 16 + B5 26 = 85 计划下限，取 75 为硬门槛留余量）；45 个端点按 ID 逐项验收打勾；ruff 全绿；前端构建通过；三场景真实跑通有日志；无 P0/P1 缺陷。
 
 ---
 
@@ -561,9 +836,11 @@ S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不�
 | main.py 单文件 / on_event 弃用 | 技术债 | B1 重构 | B1 |
 | sys.path.insert | 技术债 | B1 改可安装包 | B1 |
 | 无迁移工具 | 技术债 | B1 引入 Alembic | B1 |
-| agent_run.employee_key 字符串 | 临时设计 | B3 加 employee_id 双写；M2 切换 | B3 |
+| agent_run.employee_key 字符串 | 临时设计 | B3 给 `agent_run` 与 `usage_record` **都**加 `employee_id` 双写；M2 切换 | B3 |
 | 无分页/统一错误 | 技术债 | B1 统一 | B1 |
 | 前端仅 1 页 | 骨架 | B2–B5 按页面清单落地 | B2–B5 |
+| 模型快照是否缺失 | **已核实：不缺失** | `agent_run.model`/`usage_record.model` 已是快照（§2.2）；B3 只需补"切换后历史不被改写"的测试 | B3 |
+| 本地管理接口无跨站防护 | 仅 CORS | B1 增加 Host/Origin/自定义头/Fetch-Metadata 校验（§11.8） | B1 |
 
 ---
 
@@ -577,34 +854,68 @@ S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不�
 | 派工打分主观 | 争议 | 权重常量 + 版本号 + 因子可见；M1 只预览不派发 |
 | 导入导出一致性 | 数据损坏 | 单事务 + dry-run + 往返测试 |
 | 真实连接测试费用 | 成本 | `max_tokens=8` + live 标记默认跳过 |
+| 审查人规则过严导致小公司无法派工 | 阻塞 | 返回明确 reason_code + suggestion；`allow_subordinate_review` 可配置，默认关闭 |
+| 本地防护误杀正常开发请求 | 开发体验 | 白名单含 5173 双写法；加"正常请求放行"对照测试；令牌默认关闭 |
 
 ---
 
-## 15. 待确认决策（6 个，含建议默认值）
+## 15. 决策（已由所有者确认，2026-11-05）
 
-| # | 决策 | 建议 |
-|---|---|---|
-| D-1 | 引入 shadcn/ui + TanStack Query + React Flow | **引入**（React Flow 本就属指定技术栈） |
-| D-2 | 员工姓名同公司唯一 | **唯一**（避免派工歧义） |
-| D-3 | 打分权重 0.30/0.20/0.20/0.15/0.15 | **接受**，后续调整须升 algorithm_version |
-| D-4 | 员工软删除 | **软删除**（硬删破坏审计） |
-| D-5 | 提示词允许 UI 改历史版本 | **不允许**（只新增/回滚） |
-| D-6 | 导入冲突默认策略 | **rename（改名保留两者）**，不默认覆盖 |
+| # | 决策 | **结论（已确认）** | 落地位置 |
+|---|---|---|---|
+| D-1 | 前端依赖方案 | **接受**：shadcn/ui + TanStack Query + React Flow + react-hook-form + zod（清单见 §8.0） | B1/B2 |
+| D-2 | 员工姓名唯一性 | **同一公司内唯一** | B3 唯一索引 + 409 |
+| D-3 | 派工打分权重 | **接受初始权重**，标注为 **m1.0 暂定规则**，调整须升版本 | B5 |
+| D-4 | 员工删除方式 | **软删除**（`deleted_at`，保留历史与审计） | B3 |
+| D-5 | 提示词历史版本 | **不可修改**，只能新增版本或切换激活版本 | B4 |
+| D-6 | 导入冲突默认策略 | **rename（改名保留双方数据）** | B4 |
 
 ---
 
 ## 16. 下一步（给接手者）
 
-1. 向所有者确认 D-1..D-6；未回复则按建议默认值执行并在首个 commit message 中声明。
+1. 决策已确认，**不需要再问 D-1..D-6**；直接执行 B1。
 2. 执行 **B1**，顺序：
    a. 读 `apps/api/main.py`、`packages/persistence/{db,models}.py`、`tests/*`（现有 7 测试）
    b. 加 alembic 依赖 + 初始化 + `m0_baseline`（stamp 现有 `data/agentos.db`）
    c. 补 `pyproject.toml` 打包配置，`pip install -e .` 后删除对 `sys.path.insert` 的依赖（保留兜底并标注）
    d. 拆 routers/deps/errors，改 lifespan，统一错误包络与分页
-   e. 建 `tests/conftest.py` 夹具；跑 `pytest`、`ruff`、`npm run build`
-   f. 提交 `refactor(b1): 基础设施与迁移`，并在 CHANGELOG 记录
+   e. 实现 `security/local_guard.py` + `scripts/run_api.py`（§11.8），跑 S-11..S-14
+   f. 建 `tests/conftest.py` 夹具；跑 `pytest`、`ruff`、`npm run build`
+   g. 提交 `refactor(b1): 基础设施、迁移与本地接口防护`，并在 CHANGELOG 记录
 3. **B1 验收通过后再开 B2**，不得并行开工。
-4. 每批结束把真实结果（命令 + 关键数字）追加到本文件末尾的"执行记录"区（保持单文档习惯）。
+4. 每批结束把真实结果（命令 + 关键数字）追加到文末"执行记录"区（保持单文档习惯）。
+
+---
+
+## 17. 修订记录
+
+### v1.1（2026-11-05，二次审查后修订，当前版本）
+**必须修正项（用户提出）**
+1. **API 计数**：原文标注 38、分组写"员工 12"但实际列 13 项。本版逐项编号为 **45 个端点**（API-01..45），并给出每批交付数量（B2 16 / B3 14 / B4 8 / B5 7，B1 为 0），验收按 ID 打勾；同时说明审查意见的 44 是按"员工 12"推算的差异来源。
+2. **审查人推导重设计**（§10.5）：废弃"只沿 reports_to 向上找"的逻辑，改为 **候选池 + 7 条硬约束（RC-1..RC-7）+ T1..T6 分级排序**，新增 `position.can_review` 字段；覆盖"开发员执行 → QA 审查"与"测试员执行 → 开发交叉审查"两种场景；明确"找不到合格审查人返回 null + reason_code + suggestion，不硬凑"。
+3. **历史模型快照**：实测核对 M0 代码（`sequential.py:52/74`）确认 `agent_run.model` 与 `usage_record.model` **已是快照**，无需新增模型字段；但发现两张表**都缺 `employee_id`**，B3 补 `usage_record.employee_id`（原计划只补 agent_run），并新增 A3-6/7/8 三个测试（历史不被改写、降级、缓存）。
+4. **本地 API 安全**（§7.1 + §11.8）：B1 新增 Host 校验、可信 Origin、`X-AgentOS-Client` 自定义头、`Sec-Fetch-Site` 拒绝跨站、写请求校验；明确默认只监听 `127.0.0.1`、禁止默认 `0.0.0.0`；新增 S-11..S-14 四项测试。
+
+**建议完善项（用户提出）**
+5. 前端依赖清单统一为表格（§8.0），含版本策略与"shadcn 不是 npm 包"的说明。
+6. 新增 §9.6 提示词文件/数据库一致性协议：临时文件→fsync→原子改名→DB 事务→失败补偿，配套 `reconcile_prompts.py` 与 P-1..P-4 测试。
+7. BR-04 拆为 a~e：同公司、非自我、非下级、链长 ≤20、对象必须 active。
+8. 新增 §9.2 健康缓存规则：配置指纹键、正缓存 300s / 负缓存 60s、主动失效、single-flight、`health_source` 标注。
+9. 派工预览新增 `data_quality` 与 `score_note`，明确 performance/load 为中性 0.5 且前端用"估算"徽标，B8-8 断言（§10.4）。
+
+**冲突修复**
+10. **权限层自相矛盾**：v1.0 同时写"员工层只能收窄"与"file_write 可在员工档案放宽"。本版定为 **BR-13：放宽只能改岗位默认且不超公司策略，员工覆盖永远只能收窄**（§11.2/§11.4）。
+11. **批次依赖倒置（共 3 处）**：① effective-permissions/permission-overrides/capabilities 依赖 B5 权限模块 → 移到 B5；② `GET /employees/{id}/prompts` 依赖 B4 的 `prompt_revision` → 移到 B4；③ `GET /employees/{id}/audit` 依赖 B5 的 `audit_log` → 移到 B5。最终 B3 员工端点 8 个、B4 增 1 个、B5 增 4 个。
+12. **B2 验收依赖未建表**：v1.0 要求 B2 验"含员工部门不可删"，但 employee 表在 B3 → 该项移到 B3，B2 只验"含子部门不可删"。
+13. **测试数量与门槛脱节**：v1.0 B6 门槛 ≥50，但各批下限相加已 85 → 门槛改为 **≥75**（留余量），并给出各批下限（6/10/20/16/26）。
+14. **组织图员工节点**：B2 无员工数据 → 明确 B2 只渲染部门/岗位，员工节点 B3 接入。
+
+**决策落地**
+15. D-1~D-6 全部标记为"已确认"，并写明落地批次；ADR-0011..0014 同步转为已接受。
+
+### v1.0（2026-11-05）
+初版单文档（由 7 份拆分文档合并），包含 M1 PRD、数据模型、API、前端、解耦与派工、安全、分批计划与 M0 遗留处理。
 
 ---
 
@@ -612,4 +923,4 @@ S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不�
 
 | 批次 | 日期 | 结果 | 证据 |
 |---|---|---|---|
-| — | — | 计划待确认 | 本文件 |
+| — | 2026-11-05 | v1.1 计划修订完成，审查通过，待开始 B1 | 本文件 §17 |
