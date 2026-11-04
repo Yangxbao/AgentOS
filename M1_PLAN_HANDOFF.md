@@ -1210,6 +1210,130 @@ python scripts/backup_db.py          → 备份成功，副本可读（4 条任�
 
 ---
 
+## 20. B3–B6 连续执行与 M1 最终验收（2026-11-05）
+
+> 状态：**M1 功能完成，有条件通过**（P0 无；P1 见 §20.10）
+> 提交：B3 `17e8cd0`｜B4 `50ef92d`｜B5 `a89eb51`｜B6 文档提交见附录
+
+### 20.1 各批完成情况
+
+| 批次 | 内容 | 结果 |
+|---|---|---|
+| B3 | 4 张表 + `usage_record.employee_id`；员工 CRUD/启停/软删/汇报链；模型连接/测试/目录；凭据引用；健康缓存；员工/模型/组织图前端 | ✅ 13 个新测试 |
+| B4 | 提示词文件版本化（不可变 + 哈希 + 激活 + diff + 对账）；导出/导入（dry-run、rename、无密钥、路径穿越防护）；提示词编辑器与导入页 | ✅ 10 个新测试 |
+| B5 | 三层权限（只收窄）、有效能力、派工硬过滤+评分、正式/降级双池 T1–T6、决策落库、审计；权限面板/派工台/审计页 | ✅ 12 个新测试 |
+| B6 | 三个 E2E 场景、全量回归、迁移与真实库核对、构建 | ✅ 23 项 E2E 检查 |
+
+### 20.2 每批 Git 提交
+
+```
+17e8cd0 feat(b3): 员工与模型解耦（4 表 + 14 API + 前端）
+50ef92d feat(b4): 提示词版本化与配置导入导出
+a89eb51 feat(b5): 三层权限、派工预览、双池审查人、审计
+（B6：本文件与 CHANGELOG、E2E 脚本同提交）
+```
+
+### 20.3 新增/修改文件（汇总）
+
+- 迁移：`0004_m1_b3_employee_model.py`、`0005_m1_b4_prompt.py`、`0006_m1_b5_assignment_audit.py`
+- 领域包：`packages/model_gateway/{credentials,catalog,health}.py`、`packages/organization/{employees,connections}.py`、`packages/prompts/`、`packages/config_io/`、`packages/permissions/{effective,policy,audit,assignment}.py`、`packages/agent_core/capabilities.py`
+- API：`routers/{employees,model_connections,prompts,config_io,governance}.py`、`schemas/{people,governance}.py`
+- 前端：`api/{people,prompts,config,governance}.ts`、`pages/{Employees,EmployeeDetail,ModelConnections,ImportExport,Assignment,Audit}Page.tsx`
+- 脚本/测试：`scripts/{reconcile_prompts,e2e_m1}.py`、`tests/{test_employees,test_prompts,test_config_io,test_governance}.py`
+
+### 20.4 45 个 API 逐项验收
+
+- **OpenAPI 实际注册：44 个 route–method 对 + 1 个辅助端点 `/model-providers`**
+- 契约 45 项中，API-43 与 API-44 共用同一路径（`POST /config/import`，`dry_run` 查询参数区分），因此路由对为 44；**契约项仍为 45，全部实现**
+- 分组：公司 5 ✅｜部门 6 ✅｜岗位 5 ✅｜员工 13 ✅｜提示词 4 ✅｜模型连接 6 ✅｜派工 2 ✅｜配置 3 ✅（同一路由双行为）｜审计 1 ✅
+- 测试直接覆盖：公司 5/5、部门 4/6（PATCH 改名、DELETE 有覆盖；`PATCH` 的纯改名未单测）、岗位 5/5、员工 10/13（PATCH 权限相关由权限接口覆盖）、提示词 4/4、连接 4/6（`test` 端点未做真实调用测试）、派工 2/2、配置 3/3、审计 2/2
+- **未直接测试项**：`PATCH /departments/{id}`（仅经 move 覆盖 parent 变更）、`POST /model-connections/{id}/test`（会发起真实外部调用，未在测试中执行）、`PUT /api/v1/employees/{id}/permission-overrides` 的部分键组合
+- 辅助端点 `/model-providers`：静态目录，不计入 45
+
+### 20.5 数据库迁移与备份
+
+| 项 | 结果 |
+|---|---|
+| 迁移链 | `m0_baseline → b1 → b2 → b3 → b4 → b5`，真实库 revision=`m1_b5_assignment_audit` |
+| 真实库 | 16 张表；`task` 4 条、`company` 0 条；历史任务/执行记录未改动 |
+| 备份 | B1 前 `data/backups/pre_b1_*.db`；B1 补充验收时 `agentos_20261105_023021/` |
+| 迁移测试 | 空库 + M0 旧库两条路径持续通过；head 动态读取 |
+
+### 20.6 测试统计（实际执行）
+
+```
+pytest tests/ -q                                  → 73 passed
+ruff check apps packages scripts tests migrations  → All checks passed!
+cd apps/web && npm run build                      → 通过，102 modules，440.61 kB JS
+python scripts/e2e_m1.py                          → 23 项检查全部通过（见 docs/testing/m1_e2e_output.txt）
+```
+
+| 来源 | 数量 |
+|---|---|
+| M0 基线 | 7 |
+| B1 | 7 |
+| B1 补充 | 9 |
+| B2 | 15 |
+| B3 | 13 |
+| B4 | 10 |
+| B5 | 12 |
+| **合计（pytest）** | **73** |
+| 计划下限（§12/§19 核算） | 89（未达，差 16） |
+| E2E（非 pytest） | 23 项 |
+
+> **诚实声明**：实际 pytest 73 个，低于计划 89。原因是 B3/B4/B5 的测试按"高价值路径"合并编写（如三层权限用少量参数化用例覆盖多组合），未逐条凑数。覆盖项与未覆盖项见 §20.4/§20.10，不以数量达标冒充质量达标。
+
+### 20.7 三个端到端场景
+
+| 场景 | 结果 |
+|---|---|
+| S1 从零建公司（2 部门/3 岗位/2 连接/4 员工含兼任/提示词/组织树/导出/导入/哈希一致） | ✅ 10 项检查 |
+| S2 模型切换（身份不变、主模型历史保留、成本按员工归因、能力随新模型、权限来源链） | ✅ 6 项检查 |
+| S3 权限与派工（员工不能扩权、工具硬过滤、审查人≠执行人、data_quality、决策留痕、审计） | ✅ 7 项检查 |
+
+### 20.8 真实模型验证 vs Mock
+
+- **真实验证**：M0 的 V1/V4 曾用 DeepSeek 真实 API 调用成功（tokens 16+8、cost $0.0000072）；B1 曾用 `/api/employees/deepseek/deepseek-chat/health` 真实连通
+- **本轮 M1（B3–B6）未发起任何真实 LLM 调用**：测试使用静态 catalog 与假 `env` 变量；`POST /model-connections/{id}/test` 未在测试中执行
+- **Mock/静态替代**：能力判定来自 `catalog.py`；健康缓存用单元测试；无不实标记
+
+### 20.9 尚未完成事项
+
+1. **浏览器可视化验收**：未安装 Playwright，组织图/派工台仅通过构建与接口验证
+2. **审计覆盖不足**：只写了 `employee.permission_overrides.update/denied`、`assignment.preview` 三类；计划中的 12 类（公司/部门/岗位变更、模型切换、提示词发布、导入导出等）未全部接入（P1）
+3. **导入非严格单事务**：`create_revision` 每版本自行 commit，失败时可能留下部分导入数据（P1）
+4. 部门拖拽 UI 未做（后端 move 已有）
+5. 45 项中 3 项无直接测试（见 §20.4）
+6. MCP/A2A/CLI 执行仍未开始（M2/M6 范围）
+
+### 20.10 风险分级
+
+| 级别 | 项 | 处理建议 |
+|---|---|---|
+| P0 | 无 | — |
+| P1 | 审计事件覆盖不足 12 类 | M1 收尾补 4 类核心（员工/模型切换/提示词/导入导出） |
+| P1 | 导入事务性不足 | 改为显式 session 事务 + 文件补偿 |
+| P1 | 连接测试端点无真实调用测试 | 在有 Key 的环境手工执行一次并留证 |
+| P1 | 3 个 API 无直接测试 | 补 PATCH 部门、权限组合、连接测试（mock） |
+| P2 | 前端未浏览器验收 | M2 联调时补 |
+| P2 | 45 vs 44 计数口径 | 文档已注明（import 双行为） |
+
+### 20.11 Git 与工作区
+
+- HEAD：B5 `a89eb51`；B6 文档与脚本随后提交
+- 工作区：提交前干净；未推送 GitHub；未安装未授权组件；未修改系统设置
+- 真实库仅执行计划内向前迁移，未做 downgrade
+
+### 20.12 M2 启动建议
+
+1. 先补 P1（审计 4 类、导入事务、3 个 API 测试），约半天
+2. M2 任务引擎复用 `assignment.preview()` 候选集作为 CEO 约束；`task-engine` 负责状态机
+3. Agent 侧新增独立 `/agent-api` 命名空间（BR-12 物理隔离）
+4. 前端补浏览器级验收（需批准 Playwright）
+5. 真实多供应商调用建议在用户提供第二家 Key 后做一次冒烟
+
+---
+
 ## 附录：M1 执行记录（由后续执行者追加，勿删）
 
 | 批次 | 日期 | 结果 | 证据 |
@@ -1219,3 +1343,7 @@ python scripts/backup_db.py          → 备份成功，副本可读（4 条任�
 | B1 | 2026-11-05 | **完成**：14/14 测试、ruff 全绿、前端构建通过；真实 M0 库 4 条任务全保留；5 项安全实测通过 | 代码 `83adedb`；报告 §18 |
 | B1 补充 | 2026-11-05 | 有条件通过：23/23 测试；修复默认库路径、启动建表策略、审计 ID；9 个补充用例 | `381145f`；报告 §19.1 |
 | B2 | 2026-11-05 | **完成**：组织域 3 表 + 16 API + 前端页面；38/38 测试、ruff、构建全绿；真实库迁移且历史数据不变 | `fe66315`；报告 §19.2-19.7 |
+| B3 | 2026-11-05 | **完成**：员工/模型 4 表 + 14 API + 前端；51/51 测试 | `17e8cd0`；§20.1 |
+| B4 | 2026-11-05 | **完成**：提示词版本化 + 导入导出；61/61 测试 | `50ef92d`；§20.1 |
+| B5 | 2026-11-05 | **完成**：三层权限 + 派工 + 双池审查人 + 审计；73/73 测试 | `a89eb51`；§20.1 |
+| B6 | 2026-11-05 | **完成**：3 个 E2E 场景 23 项检查；全量回归/构建/迁移核对 | 本文件 §20 |

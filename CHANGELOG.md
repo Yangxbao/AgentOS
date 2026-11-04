@@ -2,6 +2,22 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased] - M1 完成（B3–B6）
+
+### Added
+- 员工与模型解耦：employee / employee_position / model_connection / model_switch_log + 14 个 API
+- 凭据引用（env:/dpapi:/keyring:）与脱敏、模型目录、健康缓存（正 300s/负 60s/配置指纹）
+- 提示词外置与不可变版本（原子写 + SHA-256 + 激活指针 + diff + 对账脚本）
+- 公司配置导出/导入（zip、dry-run、rename 冲突、无密钥、路径穿越防护）
+- 三层权限（公司∩岗位∩员工，只收窄）、有效能力、派工硬过滤/评分、双池审查人 T1–T6
+- 派工决策与审计日志（只增不改）
+- 前端：员工/模型连接/提示词/导入导出/派工预览/审计/权限面板
+- M1 E2E 脚本（3 场景、23 项检查）
+
+### Changed
+- `cross_model` 与 `cross_provider` 明确区分：tier 按"模型不同"判定，排序优先"供应商不同"
+- 45 个契约端点全部注册；`/model-providers` 为辅助目录端点（不计入 45）
+
 ## [Unreleased] - M1 / B2
 
 ### Added
