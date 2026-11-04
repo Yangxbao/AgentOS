@@ -1,14 +1,23 @@
 {
-  "started_at": "2026-11-05T01:28:44+0800",
-  "duration_s": 9.8,
+  "started_at": "2026-11-05T01:31:09+0800",
+  "duration_s": 13.2,
   "python": "3.13.14",
   "results": [
     {
       "id": "V1",
       "name": "LiteLLM 调用 DeepSeek",
-      "status": "BLOCKED",
-      "detail": "缺少 DEEPSEEK_API_KEY（.env 未配置）",
-      "evidence": {}
+      "status": "PASS",
+      "detail": "内容='1+1 等于 2。' tokens=16+8 cost=7.2e-06 latency=1405ms",
+      "evidence": {
+        "content": "1+1 等于 2。",
+        "usage": {
+          "model": "deepseek/deepseek-chat",
+          "prompt_tokens": 16,
+          "completion_tokens": 8,
+          "cost_usd": 7.2e-06,
+          "latency_ms": 1405
+        }
+      }
     },
     {
       "id": "V2",
@@ -32,17 +41,41 @@
     {
       "id": "V4",
       "name": "双 Agent 顺序协作",
-      "status": "BLOCKED",
-      "detail": "缺少 DEEPSEEK_API_KEY",
-      "evidence": {}
+      "status": "PASS",
+      "detail": "task_state=review_passed review=pass",
+      "evidence": {
+        "task_id": "2bb53e6939a0456ebe5360fe82f4a938",
+        "task_state": "review_passed",
+        "review_parsed": {
+          "conclusion": "pass",
+          "risk": "将“内置持久化检查点机制”表述为 LangGraph 的固有属性，但未说明其依赖外部持久化后端（如数据库/存储）配置，存在把可选能力说成开箱即用的事实夸大风险。",
+          "reason": "整体论断与 LangGraph 公开能力基本一致，但 checkpointing 的可用性依赖后端配置，需限定条件以免误导。"
+        },
+        "research_preview": "- LangGraph 以显式图结构（节点与边）定义 Agent 工作流，使多 Agent 的任务路由与状态流转可被直接建模和审查。\n- 它提供内置的持久化检查点（checkpointing）机制，支持中断后恢复与人工介入（human-in-the-loop），适合长流程任务调度。\n- 支持循环与条件边，能表达重试、回退和动态分支，比线性链式编排更适合多 Agent 协作场景。\n- 状态在节点间以共享 State 对象传递，便于集中管理上下文并减少 Agent 间手工传参的耦合。\n- 与 LangChain 生态兼容，可复用其工具与模型接口，降低已有 LangChain 项目的迁移成本。",
+        "review_preview": "{\"conclusion\": \"pass\", \"risk\": \"将“内置持久化检查点机制”表述为 LangGraph 的固有属性，但未说明其依赖外部持久化后端（如数据库/存储）配置，存在把可选能力说成开箱即用的事实夸大风险。\", \"reason\": \"整体论断与 LangGraph 公开能力基本一致，但 checkpointing 的可用性依赖后端配置，需限定条件以免误导。\"}"
+      }
     },
     {
       "id": "V5",
       "name": "LangGraph interrupt 审批",
-      "status": "FAIL",
-      "detail": "OperationalError: unable to open database file",
+      "status": "PASS",
+      "detail": "挂起=True 恢复后 result=rejected decided_by=user",
       "evidence": {
-        "traceback": "Traceback (most recent call last):\n  File \"E:\\AgentOS\\scripts\\m0_verify.py\", line 177, in v5_langgraph_interrupt\n    with SqliteSaver.from_conn_string(ckpt_path) as ckpt:\n         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^\n  File \"C:\\Users\\MR\\.workbuddy\\binaries\\python\\versions\\3.13.12\\Lib\\contextlib.py\", line 141, in __enter__\n    return next(self.gen)\n  File \"E:\\AgentOS\\.venv\\Lib\\site-packages\\langgraph\\checkpoint\\sqlite\\__init__.py\", line 126, in from_conn_string\n    sqlite3.connect(\n    ~~~~~~~~~~~~~~~^\n        conn_string,\n        ^^^^^^^^^^^^\n        # https://ricardoanderegg.com/posts/python-sqlite-thread-safety/\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        check_same_thread=False,\n        ^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.OperationalError: unable to open database file\n"
+        "suspended": {
+          "action": "删除文件 data/tmp.txt",
+          "risk_level": "high",
+          "approved": "False",
+          "decided_by": "user",
+          "result": "proposed",
+          "__interrupt__": "[Interrupt(value={'type': 'approval_required', 'action': '删除文件 data/tmp.txt', 'risk_level': 'high'}, id='bb1de4845bcb5055a4a6483b95804a74', response_schema=None)]"
+        },
+        "resumed": {
+          "action": "删除文件 data/tmp.txt",
+          "risk_level": "high",
+          "approved": "False",
+          "decided_by": "user",
+          "result": "rejected"
+        }
       }
     },
     {
@@ -68,9 +101,9 @@
     }
   ],
   "counts": {
-    "PASS": 2,
-    "FAIL": 1,
+    "PASS": 5,
+    "FAIL": 0,
     "SKIP": 2,
-    "BLOCKED": 3
+    "BLOCKED": 1
   }
 }

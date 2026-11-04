@@ -56,15 +56,15 @@
 | **10 生态** | 团队模板导入导出/分享 | M6 | ⬜ | |
 | | Agent 插件/SDK | M6 | ⬜ | |
 
-## M0 验证项状态速查
+## M0 验证项状态速查（2026-11-05 实测）
 
 | 验证项 | 状态 |
 |---|---|
-| LiteLLM + DeepSeek 调用 | 待执行（等用户 Key） |
-| 第二供应商 | 待用户决定 |
-| AgentAdapter 接口 | 待执行 |
-| 双 Agent 顺序协作 | 待执行 |
-| interrupt 审批暂停/恢复 | 待执行 |
-| 执行记录持久化/重启保留 | 待执行 |
-| Codex CLI headless | 被阻塞（待用户授权安装） |
-| CrewAI 对照实验 | 待执行 |
+| LiteLLM + DeepSeek 调用 | ✅ PASS（tokens 16+8，cost $0.0000072） |
+| 第二供应商 | ⏭️ SKIP（无 Key，如实标记） |
+| AgentAdapter 接口 | ✅ PASS |
+| 双 Agent 顺序协作 | ✅ PASS（真实交接+结构化审查结论） |
+| interrupt 审批暂停/恢复 | ✅ PASS |
+| 执行记录持久化/重启保留 | ✅ PASS |
+| Codex CLI headless | ⛔ BLOCKED（待用户授权安装+认证） |
+| CrewAI 对照实验 | ⏭️ SKIP（可选依赖未装） |
