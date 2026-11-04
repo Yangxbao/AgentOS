@@ -395,7 +395,7 @@ packages/agent_core/    capabilities.py(能力三层交集)
 | 已有 | `vite@8` `typescript` `@vitejs/plugin-react` `oxlint` | 构建 | M0 |
 | 新增 | `@tanstack/react-query@5` | 服务端状态 | B1 |
 | 新增 | `@xyflow/react@12` | 组织图 | B2 |
-| 新增 | `react-hook-form@7` + `@hookform/resolvers` + `zod@3` | 表单与客户端校验 | B1 |
+| 新增 | `react-hook-form@7` + `@hookform/resolvers` + `zod@4`（原计划 3.x；因 3.x 存在高危漏洞 GHSA-mrhx-c7xc-m3w5，B1 实际安装 4.6.7，resolvers 7 同时支持 ^3.25 与 ^4） | 表单与客户端校验 | B1 |
 | 新增 | `class-variance-authority` `clsx` `tailwind-merge` `lucide-react` | shadcn/ui 运行时依赖 | B1 |
 | 新增 | `@radix-ui/react-dialog` `@radix-ui/react-select` `@radix-ui/react-tabs` `@radix-ui/react-toast` `@radix-ui/react-dropdown-menu` | shadcn/ui 组件底层（按实际使用的组件逐步加） | B1–B3 |
 | 新增（开发） | `vitest` `@testing-library/react` `jsdom` | 纯函数/组件单测（可选，B3 起） | B3 |
@@ -1004,6 +1004,113 @@ S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不�
 
 ### v1.0（2026-11-05）
 初版单文档（由 7 份拆分文档合并），包含 M1 PRD、数据模型、API、前端、解耦与派工、安全、分批计划与 M0 遗留处理。
+
+---
+
+## 18. B1 执行报告（2026-11-05）
+
+> 代码提交：`83adedb`｜执行人：AgentOS CTO（AI）｜状态：**完成，等待所有者验收；未开始 B2**
+
+### 18.1 结论与验收对照
+
+| 验收项 | 结果 | 证据 |
+|---|---|---|
+| 空库迁移 | ✅ | `test_empty_database_upgrade_to_head`；`alembic upgrade head` 建出 5 表 + `alembic_version`，`agent_run.employee_id` 存在 |
+| M0 旧库迁移 | ✅ | 真实 `data/agentos.db` 先 `stamp m0_baseline` 再 `upgrade head`：4 条 task / 4 条 agent_run 全保留，revision=`m1_b1_agent_run_employee_id`；另有一次备份副本上的自动化测试 |
+| M0 的 7 个测试 | ✅ 7/7 | `pytest tests/ -v` 全绿，未改动任何断言 |
+| B1 新增测试 ≥7 | ✅ 7 | 迁移 2 + 本地防护 5 |
+| 正常请求放行 | ✅ | 真实服务：POST 带可信 Origin + `X-AgentOS-Client` → HTTP 405（已到路由层）；GET `/api/health` → 200 |
+| 恶意 Origin | ✅ | HTTP 403 `UNTRUSTED_REQUEST` |
+| 恶意 Host | ✅ | HTTP 400 `INVALID_HOST` |
+| 缺少自定义头 | ✅ | HTTP 403 `MISSING_CLIENT_HEADER` |
+| 非法监听地址 | ✅ | `run_api.py --host 0.0.0.0` 退出码 1 并打印拒绝原因；`AGENTOS_ALLOW_EXTERNAL=1` 才放行 |
+| ruff | ✅ | `All checks passed!`（apps/packages/scripts/tests/migrations） |
+| 前端构建 | ✅ | `tsc -b && vite build` 通过，62 modules，168.00 kB JS |
+| 数据安全 | ✅ | 迁移前用 SQLite 在线备份到 `data/backups/pre_b1_20261105_021429.db`（77,824 bytes） |
+| 未越界 | ✅ | 未安装 Codex/CrewAI/Docker/Playwright，未推 GitHub，未改系统设置，未开始 B2 |
+
+### 18.2 变更文件清单
+
+**新增（B1 核心）**
+- `alembic.ini`、`migrations/env.py`、`migrations/script.py.mako`
+- `migrations/versions/0001_m0_baseline.py`、`0002_m1_b1_agent_run_employee_id.py`
+- `apps/api/deps.py`（会话 / 分页 / ActorContext）、`apps/api/errors.py`（统一包络 + request_id）
+- `apps/api/routers/__init__.py`、`apps/api/routers/legacy.py`（M0 三接口迁移）
+- `apps/api/security/__init__.py`、`local_guard.py`
+- `scripts/run_api.py`、`scripts/backup_db.py`、`scripts/__init__.py`
+- `tests/conftest.py`、`tests/test_migrations.py`、`tests/test_local_guard.py`
+- `apps/web/src/api/client.ts`、`api/types.ts`、`lib/queryClient.ts`、`vite-env.d.ts`
+
+**修改**
+- `apps/api/main.py`（lifespan + 中间件装配 + 路由挂载）
+- `packages/persistence/models.py`（`AgentRun.employee_id` 可空 + 索引）
+- `pyproject.toml`（build-system / setuptools 包发现 / dependencies）
+- `requirements.txt`（+alembic）、`apps/web/package.json` / `package-lock.json`
+- `apps/web/src/main.tsx`（QueryClientProvider）、`App.tsx`（使用统一客户端）
+- `.env.example`（可信来源 / 本地令牌 / 外部监听开关）、`.github/workflows/ci.yml`、`README.md`、`CHANGELOG.md`
+
+### 18.3 数据库迁移结果
+
+| 路径 | 操作 | 结果 |
+|---|---|---|
+| 空库 | `alembic upgrade head` | 5 张业务表 + `alembic_version`；`agent_run` 含 `employee_id`；`usage_record` 不含（按计划 B3 才加） |
+| 真实 M0 库 | `stamp m0_baseline` → `upgrade head` | task 4→4、agent_run 4→4；新增 `employee_id`；revision 更新；`agent_run.model` 历史值未变 |
+| 迁移后 schema 对比 | 旧库 vs 空库 | 五表列集合完全一致（自动化断言） |
+
+> 测试中发现并修复了一个测试自身的缺陷：真实库迁移到 head 后，旧测试仍把它当 M0 样本去 `stamp`，导致重复加列。已改为"仅当库无 `alembic_version` 且 `agent_run` 无 `employee_id` 时才作为 M0 样本"，否则用基线 revision 造等价库；修复后 14/14 通过。
+
+### 18.4 测试逐项结果
+
+**M0 基线 7 个（全部保留、全部通过）**
+`test_litellm_adapter_capabilities_honest`、`test_interrupt_raises_capability_not_supported`、`test_capability_set_serializable`、`test_event_serialization`、`test_cost_none_is_honest`、`test_multiple_runs_not_overwritten`、`test_restart_keeps_records`
+
+**B1 新增 7 个**
+| 测试 | 覆盖 |
+|---|---|
+| `test_empty_database_upgrade_to_head` | 空库迁移 + 新列存在 + 未提前加 usage_record.employee_id |
+| `test_m0_legacy_database_upgrade_preserves_data` | M0 旧库数据保留 + revision + schema 与空库一致 |
+| `test_normal_frontend_request_passes` | 可信 Origin + 自定义头放行；读接口无需 Origin；request_id 存在 |
+| `test_untrusted_origin_rejected` | 恶意 Origin 403；`Sec-Fetch-Site: cross-site` 也 403 |
+| `test_invalid_host_rejected` | `Host: evil.example` → 400 |
+| `test_missing_client_header_rejected` | 缺 `X-AgentOS-Client` → 403 |
+| `test_external_bind_address_rejected` | `0.0.0.0` 拒绝；显式授权放行；localhost/::1 归一化 |
+
+**汇总**：`14 passed in 2.17s`
+
+### 18.5 真实安全验证（启动服务 + curl）
+
+```
+GET  /api/health                                   → 200 {"status":"ok","version":"0.1.0-m1b1"}
+POST /api/tasks  Origin 127.0.0.1:5173 + 自定义头    → 405 METHOD_NOT_ALLOWED（放行到路由）
+POST /api/tasks  Origin http://evil.example        → 403 UNTRUSTED_REQUEST
+POST /api/tasks  缺 X-AgentOS-Client               → 403 MISSING_CLIENT_HEADER
+GET  /api/health Host: evil.example                → 400 INVALID_HOST
+run_api.py --host 0.0.0.0                          → 退出码 1，拒绝监听
+GET  /api/tasks（真实库）                            → 4 条任务（M0-V6 持久化标记任务 等）
+```
+
+### 18.6 与计划的偏差（均已评估）
+
+| 偏差 | 原因 | 影响 |
+|---|---|---|
+| 本地防护实现为 **ASGI 中间件**，而非"写路由的 router 级依赖"（§11.8 原文） | B1 尚无 `/api/v1` 写路由，依赖无处可挂；中间件可同时覆盖 legacy 与未来路由 | 防护能力等价且更全面；M5 接账号体系时整体替换为鉴权中间件。已在 `local_guard.py` 文件头注明 |
+| `conftest.py` 未提供 `seeded_company` 夹具 | company 表 B2 才建，B1 提供会造假数据 | 改为 `seeded_task`；`seeded_company` 随 B2 交付 |
+| zod 3.x → **4.6.7** | 3.x 存在高危漏洞 GHSA-mrhx-c7xc-m3w5，`npm audit` 报 high | 已升级并 `npm audit --omit=dev` 0 漏洞；方案文档 §8.0 已同步 |
+| 新增 `scripts/__init__.py` | 测试需导入 `resolve_bind_host` | 无副作用 |
+| 新增 `AgentRun.employee_id` 索引命名 `ix_agent_run_employee_id` | 与 SQLAlchemy 默认命名一致 | 与迁移脚本一致，schema diff 测试验证 |
+
+### 18.7 未完成事项 / 风险 / 阻塞
+
+- **未完成（按计划属 B2+）**：`/api/v1` 路由与 45 个端点、company/employee 表、seeded_company 夹具、组织图、防篡改审计
+- **风险 1**：本地防护挡不住本机恶意进程（已知限制，M5 账号体系解决）
+- **风险 2**：`Seeded` 测试依赖真实库作为样本的路径已做前置判断；若未来库结构变化需同步基线判断逻辑
+- **风险 3**：`alembic.ini` 必须保持 ASCII（本次因中文注释触发 cp936 解析失败，已移除中文）
+- **风险 4**：`npm audit` 的 zod 修复要求破坏性升级，若后续有代码依赖 zod3 API 需适配（当前尚未使用）
+- **阻塞**：无
+
+### 18.8 是否满足 B1 验收条件
+
+**满足。** 14/14 测试通过、ruff 全绿、前端构建通过、两条迁移路径均实测、5 项安全验证全部符合预期、M0 数据完整保留。**未开始 B2，等待所有者审查。**
 
 ---
 
