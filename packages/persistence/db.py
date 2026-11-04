@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from .models import Base
 
-DEFAULT_DB_URL = "sqlite:///data/agentos.db"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# 绝对路径：避免从其他工作目录启动时悄悄创建一个空库（数据风险）
+DEFAULT_DB_URL = f"sqlite:///{(REPO_ROOT / 'data' / 'agentos.db').as_posix()}"
 
 
 def make_engine(db_url: str | None = None) -> Engine:
@@ -40,6 +42,21 @@ def init_db(db_url: str | None = None) -> Engine:
     Base.metadata.create_all(engine)
     _session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     return engine
+
+
+def ensure_schema(db_url: str | None = None) -> None:
+    """启动时确保库可用，但**不**用 create_all 偷偷补齐缺失的表。
+
+    - 空库（无任何表）：create_all 引导建库，便于首次本地启动
+    - 已有表的库：必须是迁移过的状态；B2 起新表一律通过 alembic 添加，防止绕过迁移造成结构漂移
+    """
+    from sqlalchemy import inspect
+
+    engine = make_engine(db_url)
+    tables = inspect(engine).get_table_names()
+    if not tables:
+        Base.metadata.create_all(engine)
+    engine.dispose()
 
 
 def get_session() -> Session:

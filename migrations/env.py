@@ -24,7 +24,17 @@ def _get_url() -> str:
     x_args = context.get_x_argument(as_dictionary=True)
     if x_args.get("db_url"):
         return x_args["db_url"]
-    return os.environ.get("AGENTOS_DB_URL") or config.get_main_option("sqlalchemy.url")
+    env_url = os.environ.get("AGENTOS_DB_URL")
+    if env_url:
+        return env_url
+    url = config.get_main_option("sqlalchemy.url")
+    # 兜底配置是相对路径；固定到仓库根，避免从其他目录执行时迁移到错误的库
+    if url == "sqlite:///data/agentos.db":
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        return f"sqlite:///{(root / 'data' / 'agentos.db').as_posix()}"
+    return url
 
 
 def run_migrations_offline() -> None:

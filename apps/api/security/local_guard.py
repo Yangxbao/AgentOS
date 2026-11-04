@@ -82,18 +82,19 @@ class LocalGuardMiddleware:
 
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers") or []}
         method = scope.get("method", "GET").upper()
+        request_id = (scope.get("state") or {}).get("request_id", "-")
 
         # 1) Host 校验：所有请求（防 DNS rebinding）
         host = headers.get("host", "")
         if _hostname(host) not in set(self.config.allowed_hosts):
-            await self._reject(send, 400, "INVALID_HOST", f"Host 不被允许：{host or '(空)'}")
+            await self._reject(send, 400, "INVALID_HOST", f"Host 不被允许：{host or '(空)'}", request_id)
             return
 
         # 2) 写请求：Origin / 自定义头 / Fetch Metadata / 可选令牌
         if method in UNSAFE_METHODS:
             origin = _origin_of(headers)
             if origin is not None and origin not in self.config.all_origins():
-                await self._reject(send, 403, "UNTRUSTED_REQUEST", f"Origin 不被信任：{origin}")
+                await self._reject(send, 403, "UNTRUSTED_REQUEST", f"Origin 不被信任：{origin}", request_id)
                 return
             if origin is None and self.config.require_origin:
                 # 无 Origin/Referer 的非浏览器客户端，必须带自定义头（下面继续校验）
@@ -101,7 +102,9 @@ class LocalGuardMiddleware:
 
             site = headers.get("sec-fetch-site", "").lower()
             if site == "cross-site":
-                await self._reject(send, 403, "UNTRUSTED_REQUEST", "跨站写请求被拒绝（Sec-Fetch-Site: cross-site）")
+                await self._reject(
+                    send, 403, "UNTRUSTED_REQUEST", "跨站写请求被拒绝（Sec-Fetch-Site: cross-site）", request_id
+                )
                 return
 
             client = headers.get(self.config.client_header_name, "")
@@ -111,21 +114,22 @@ class LocalGuardMiddleware:
                     403,
                     "MISSING_CLIENT_HEADER",
                     f"写请求必须携带 {self.config.client_header_name}: web（或 cli）",
+                    request_id,
                 )
                 return
 
             if self.config.local_token:
                 token = headers.get("x-agentos-token", "")
                 if token != self.config.local_token:
-                    await self._reject(send, 401, "INVALID_TOKEN", "本地令牌无效或缺失")
+                    await self._reject(send, 401, "INVALID_TOKEN", "本地令牌无效或缺失", request_id)
                     return
 
         await self.app(scope, receive, send)
 
     @staticmethod
-    async def _reject(send, status: int, code: str, message: str) -> None:
+    async def _reject(send, status: int, code: str, message: str, request_id: str = "-") -> None:
         body = json.dumps(
-            {"error": {"code": code, "message": message, "detail": {}, "request_id": "-"}},
+            {"error": {"code": code, "message": message, "detail": {}, "request_id": request_id}},
             ensure_ascii=False,
         ).encode("utf-8")
         await send({

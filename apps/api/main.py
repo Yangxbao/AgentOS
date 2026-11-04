@@ -26,10 +26,13 @@ from apps.api.errors import RequestIdMiddleware, register_exception_handlers  # 
 from apps.api.routers import legacy  # noqa: E402
 from apps.api.security.local_guard import LocalGuardMiddleware, config_from_env  # noqa: E402
 from packages.persistence import init_db  # noqa: E402
+from packages.persistence.db import ensure_schema  # noqa: E402
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 空库才引导建表；已有库必须已迁移（禁止 create_all 掩盖缺失迁移）
+    ensure_schema()
     init_db()
     yield
 
