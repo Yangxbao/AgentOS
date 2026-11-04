@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -151,6 +151,105 @@ class Position(Base):
     )
 
 
+class ModelConnection(Base):
+    """模型连接（B3）：只存凭据引用，绝不存明文密钥。"""
+
+    __tablename__ = "model_connection"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    company_id: Mapped[str] = mapped_column(ForeignKey("company.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    provider: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str] = mapped_column(String(128))
+    api_key_ref: Mapped[str] = mapped_column(String(200))
+    base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    timeout_s: Mapped[int] = mapped_column(Integer, default=60)
+    max_retries: Mapped[int] = mapped_column(Integer, default=2)
+    model_list_source: Mapped[str] = mapped_column(String(16), default="static")
+    last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_health_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    last_health_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "provider", "model", "base_url", name="uq_model_company_provider_model_url"),
+    )
+
+
+class Employee(Base):
+    """AI 员工身份：与模型解耦，只存主/备模型引用。"""
+
+    __tablename__ = "employee"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    company_id: Mapped[str] = mapped_column(ForeignKey("company.id"), index=True)
+    department_id: Mapped[str | None] = mapped_column(ForeignKey("department.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    avatar: Mapped[str] = mapped_column(String(255), default="")
+    title: Mapped[str] = mapped_column(String(120), default="")
+    bio: Mapped[str] = mapped_column(Text, default="")
+    personality: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active|disabled|archived
+    reports_to: Mapped[str | None] = mapped_column(ForeignKey("employee.id"), nullable=True, index=True)
+    primary_model_id: Mapped[str] = mapped_column(ForeignKey("model_connection.id"))
+    fallback_model_id: Mapped[str | None] = mapped_column(ForeignKey("model_connection.id"), nullable=True)
+    adapter_type: Mapped[str] = mapped_column(String(16), default="api")
+    cli_profile: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    tools_allowed: Mapped[list] = mapped_column(JSON, default=list)
+    permission_profile: Mapped[dict] = mapped_column(JSON, default=dict)
+    capabilities_declared: Mapped[dict] = mapped_column(JSON, default=dict)
+    prompt_active_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        # 软删除下同公司名称唯一：只约束未删除行（SQLite/PostgreSQL 均支持部分索引）
+        Index(
+            "uq_employee_company_name_active",
+            "company_id",
+            "name",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        Index("ix_employee_company_department", "company_id", "department_id"),
+    )
+
+
+class EmployeePosition(Base):
+    """员工-岗位（1 主 + n 兼）。"""
+
+    __tablename__ = "employee_position"
+
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employee.id"), primary_key=True)
+    position_id: Mapped[str] = mapped_column(ForeignKey("position.id"), primary_key=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    department_id: Mapped[str | None] = mapped_column(ForeignKey("department.id"), nullable=True)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ModelSwitchLog(Base):
+    """模型切换审计（只增不改）。"""
+
+    __tablename__ = "model_switch_log"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employee.id"), index=True)
+    from_model_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    to_model_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    slot: Mapped[str] = mapped_column(String(16), default="primary")
+    actor_type: Mapped[str] = mapped_column(String(16), default="user")
+    actor_id: Mapped[str] = mapped_column(String(64), default="local")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class UsageRecord(Base):
     __tablename__ = "usage_record"
 
@@ -158,6 +257,7 @@ class UsageRecord(Base):
     owner_id: Mapped[str] = mapped_column(String(64), default="local")
     agent_run_id: Mapped[str] = mapped_column(ForeignKey("agent_run.id"), index=True)
     employee_key: Mapped[str] = mapped_column(String(64), index=True)
+    employee_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     model: Mapped[str] = mapped_column(String(128))
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)

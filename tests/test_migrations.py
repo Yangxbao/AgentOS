@@ -55,7 +55,7 @@ def test_empty_database_upgrade_to_head(tmp_path, monkeypatch):
     assert M0_TABLES.issubset(tables)
     assert "alembic_version" in tables
     assert "employee_id" in _columns(url, "agent_run")
-    assert "employee_id" not in _columns(url, "usage_record")  # B3 才加，防止提前加列
+    assert "employee_id" in _columns(url, "usage_record")  # B3 已加入
 
 
 def test_m0_legacy_database_upgrade_preserves_data(tmp_path, monkeypatch):

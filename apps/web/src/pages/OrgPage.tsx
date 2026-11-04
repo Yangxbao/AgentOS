@@ -4,12 +4,13 @@ import '@xyflow/react/dist/style.css'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { orgApi, type OrgNode, type OrgTree } from '../api/org'
+import { peopleApi, type Employee } from '../api/people'
 
 const NODE_WIDTH = 200
 const X_GAP = 260
 const Y_GAP = 120
 
-function buildGraph(tree: OrgTree): { nodes: Node[]; edges: Edge[] } {
+function buildGraph(tree: OrgTree, employees: Employee[]): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = []
   const edges: Edge[] = []
   let row = 0
@@ -42,6 +43,46 @@ function buildGraph(tree: OrgTree): { nodes: Node[]; edges: Edge[] } {
   }
 
   tree.departments.forEach((dept) => walk(dept, 0, null))
+
+  // 员工节点：挂在所属部门右侧（无部门则挂公司层）
+  const byDepartment = new Map<string, Employee[]>()
+  const unassigned: Employee[] = []
+  employees.forEach((employee) => {
+    if (employee.department_id) {
+      const list = byDepartment.get(employee.department_id) ?? []
+      list.push(employee)
+      byDepartment.set(employee.department_id, list)
+    } else {
+      unassigned.push(employee)
+    }
+  })
+  let employeeRow = 0
+  const addEmployeeNode = (employee: Employee, sourceId: string, x: number) => {
+    const id = `emp-${employee.id}`
+    nodes.push({
+      id,
+      position: { x, y: employeeRow * 90 },
+      data: { label: `${employee.avatar || '🤖'} ${employee.name}\n${employee.title || '员工'}` },
+      style: {
+        width: 160,
+        whiteSpace: 'pre-line',
+        fontSize: 11,
+        borderRadius: 8,
+        border: '1px solid #1e40af',
+        background: '#0b1220',
+        color: '#dbeafe',
+        padding: 6,
+      },
+    })
+    employeeRow += 1
+    edges.push({ id: `edge-${sourceId}-${id}`, source: sourceId, target: id, style: { strokeDasharray: '4 2' } })
+  }
+  employees.forEach((employee) => {
+    const deptId = employee.department_id
+    const source = deptId && nodes.some((n) => n.id === `dept-${deptId}`) ? `dept-${deptId}` : null
+    if (source) addEmployeeNode(employee, source, 260)
+    else if (unassigned.includes(employee)) addEmployeeNode(employee, 'company-root', 0)
+  })
   return { nodes, edges }
 }
 
@@ -57,7 +98,15 @@ export default function OrgPage() {
     enabled: Boolean(activeCompanyId),
   })
 
-  const graph = useMemo(() => (tree.data ? buildGraph(tree.data) : { nodes: [], edges: [] }), [tree.data])
+  const employees = useQuery({
+    queryKey: ['employees', activeCompanyId],
+    queryFn: () => peopleApi.listEmployees(activeCompanyId as string),
+    enabled: Boolean(activeCompanyId),
+  })
+  const graph = useMemo(
+    () => (tree.data ? buildGraph(tree.data, employees.data?.items ?? []) : { nodes: [], edges: [] }),
+    [tree.data, employees.data],
+  )
 
   if (companies.isLoading) return <p className="p-6 text-slate-400">正在加载公司…</p>
 

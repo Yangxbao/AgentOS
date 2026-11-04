@@ -3,6 +3,9 @@ import { Navigate, NavLink, Route, BrowserRouter as Router, Routes } from 'react
 import { api } from './api/client'
 import type { HealthResponse } from './api/types'
 import OrganizationSettings from './pages/OrganizationSettings'
+import EmployeeDetailPage from './pages/EmployeeDetailPage'
+import EmployeesPage from './pages/EmployeesPage'
+import ModelConnectionsPage from './pages/ModelConnectionsPage'
 import OrgPage from './pages/OrgPage'
 
 function HealthBadge() {
@@ -46,6 +49,8 @@ function Shell() {
         <span className="font-semibold">AgentOS</span>
         <nav className="flex items-center gap-1">
           <NavItem to="/org">组织架构</NavItem>
+          <NavItem to="/employees">AI 员工</NavItem>
+          <NavItem to="/settings/models">模型连接</NavItem>
           <NavItem to="/settings/organization">组织设置</NavItem>
         </nav>
         <div className="ml-auto">
@@ -57,6 +62,9 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Navigate to="/org" replace />} />
           <Route path="/org" element={<OrgPage />} />
+          <Route path="/employees" element={<EmployeesPage />} />
+          <Route path="/employees/:id" element={<EmployeeDetailPage />} />
+          <Route path="/settings/models" element={<ModelConnectionsPage />} />
           <Route path="/settings/organization" element={<OrganizationSettings />} />
           <Route path="*" element={<p className="p-6 text-slate-400">页面不存在</p>} />
         </Routes>

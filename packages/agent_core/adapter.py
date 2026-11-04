@@ -53,10 +53,21 @@ class LiteLLMAdapter:
 
     adapter_type = "api"
 
-    def __init__(self, model: str, fallback_model: Optional[str] = None, timeout: float = 60.0):
+    def __init__(
+        self,
+        model: str,
+        fallback_model: Optional[str] = None,
+        timeout: float = 60.0,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        max_retries: int = 2,
+    ):
         self.model = model
         self.fallback_model = fallback_model
         self.timeout = timeout
+        self.api_key = api_key
+        self.base_url = base_url
+        self.max_retries = max_retries
         self._handles: dict[str, dict[str, Any]] = {}
 
     async def connect(self) -> None:
@@ -64,8 +75,15 @@ class LiteLLMAdapter:
 
     async def health_check(self) -> HealthStatus:
         try:
-            await chat(self.model, [{"role": "user", "content": "ping，回复 ok 即可"}],
-                       timeout=15.0, max_tokens=8)
+            await chat(
+                self.model,
+                [{"role": "user", "content": "ping，回复 ok 即可"}],
+                timeout=min(15.0, self.timeout),
+                max_tokens=8,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                num_retries=self.max_retries,
+            )
             return HealthStatus(ok=True, detail=f"{self.model} 可达")
         except GatewayError as exc:
             return HealthStatus(ok=False, detail=str(exc)[:200])
@@ -104,6 +122,9 @@ class LiteLLMAdapter:
                 state["messages"],
                 fallbacks=[self.fallback_model] if self.fallback_model else None,
                 timeout=self.timeout,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                num_retries=self.max_retries,
             )
         except GatewayError as exc:
             yield AgentEvent(type="failed", payload={"error": str(exc)})

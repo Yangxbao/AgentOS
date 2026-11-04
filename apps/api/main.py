@@ -23,7 +23,14 @@ except ModuleNotFoundError:  # deprecated fallback, 保留至 M1 结束
 load_dotenv(ROOT / ".env")
 
 from apps.api.errors import RequestIdMiddleware, register_exception_handlers  # noqa: E402
-from apps.api.routers import companies, departments, legacy, positions  # noqa: E402
+from apps.api.routers import (  # noqa: E402
+    companies,
+    departments,
+    employees,
+    legacy,
+    model_connections,
+    positions,
+)
 from apps.api.security.local_guard import LocalGuardMiddleware, config_from_env  # noqa: E402
 from packages.persistence import init_db  # noqa: E402
 from packages.persistence.db import ensure_schema  # noqa: E402
@@ -56,7 +63,13 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
     app.include_router(legacy.router, prefix="/api")
-    for router in (companies.router, departments.router, positions.router):
+    for router in (
+        companies.router,
+        departments.router,
+        positions.router,
+        employees.router,
+        model_connections.router,
+    ):
         app.include_router(router, prefix="/api/v1")
     return app
 

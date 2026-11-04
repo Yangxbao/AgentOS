@@ -61,6 +61,8 @@ async def chat(
     num_retries: int = 2,
     temperature: float = 0.3,
     max_tokens: int = 2048,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
 ) -> GatewayResponse:
     """统一聊天调用。fallbacks 为备用模型列表（员工级主备模型机制的基础）。"""
     started = time.perf_counter()
@@ -73,6 +75,8 @@ async def chat(
             num_retries=num_retries,
             temperature=temperature,
             max_tokens=max_tokens,
+            api_key=api_key,
+            base_url=base_url,
         )
     except Exception as exc:  # litellm 异常类型众多，统一包装；不记录请求体
         raise GatewayError(f"{type(exc).__name__}: {str(exc)[:300]}") from exc
