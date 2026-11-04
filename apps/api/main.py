@@ -25,11 +25,13 @@ load_dotenv(ROOT / ".env")
 from apps.api.errors import RequestIdMiddleware, register_exception_handlers  # noqa: E402
 from apps.api.routers import (  # noqa: E402
     companies,
+    config_io,
     departments,
     employees,
     legacy,
     model_connections,
     positions,
+    prompts,
 )
 from apps.api.security.local_guard import LocalGuardMiddleware, config_from_env  # noqa: E402
 from packages.persistence import init_db  # noqa: E402
@@ -69,6 +71,8 @@ def create_app() -> FastAPI:
         positions.router,
         employees.router,
         model_connections.router,
+        prompts.router,
+        config_io.router,
     ):
         app.include_router(router, prefix="/api/v1")
     return app

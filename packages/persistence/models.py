@@ -250,6 +250,27 @@ class ModelSwitchLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class PromptRevision(Base):
+    """提示词版本（B4）：文件不可变，DB 只存指针 + 哈希。"""
+
+    __tablename__ = "prompt_revision"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employee.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    file_path: Mapped[str] = mapped_column(String(255))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(64), default="local")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("employee_id", "version", name="uq_prompt_employee_version"),
+    )
+
+
 class UsageRecord(Base):
     __tablename__ = "usage_record"
 

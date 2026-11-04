@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { peopleApi } from '../api/people'
+import { promptsApi } from '../api/prompts'
 
 function errorText(error: unknown): string {
   return error instanceof ApiError ? `${error.code}：${error.message}` : String(error)
@@ -23,6 +24,27 @@ export default function EmployeeDetailPage() {
   const [reason, setReason] = useState('')
   const [message, setMessage] = useState<string | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
+  const prompts = useQuery({ queryKey: ['prompts', id], queryFn: () => promptsApi.list(id) })
+  const [draft, setDraft] = useState('')
+  const [note, setNote] = useState('')
+  const [diff, setDiff] = useState('')
+  const savePrompt = useMutation({
+    mutationFn: () => promptsApi.create(id, draft, note),
+    onSuccess: () => {
+      setDraft('')
+      setMessage('已保存为新版本（不可变）')
+      queryClient.invalidateQueries({ queryKey: ['prompts', id] })
+    },
+    onError: (error) => setMessage(errorText(error)),
+  })
+  const activatePrompt = useMutation({
+    mutationFn: (revisionId: string) => promptsApi.activate(revisionId),
+    onSuccess: () => {
+      setMessage('已切换激活版本')
+      queryClient.invalidateQueries({ queryKey: ['prompts', id] })
+    },
+    onError: (error) => setMessage(errorText(error)),
+  })
 
   const bind = useMutation({
     mutationFn: () =>
@@ -102,6 +124,49 @@ export default function EmployeeDetailPage() {
               {warnings.map((warning) => <li key={warning}>{warning}</li>)}
             </ul>
           )}
+        </div>
+      </section>
+
+      <section className="rounded border border-slate-800 p-4">
+        <h3 className="text-sm font-medium text-slate-200">提示词版本（外置文件，不可变）</h3>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
+          <div>
+            <ul className="space-y-1 text-sm">
+              {prompts.data?.map((revision) => (
+                <li key={revision.id} className="flex items-center justify-between rounded border border-slate-800 px-2 py-1">
+                  <span className="text-slate-300">
+                    v{revision.version}
+                    {revision.is_active && <span className="ml-2 rounded bg-emerald-900 px-2 py-0.5 text-xs text-emerald-300">激活</span>}
+                    <span className="ml-2 text-xs text-slate-500">{revision.note}</span>
+                  </span>
+                  <span className="flex gap-2 text-xs">
+                    <button className="text-slate-400 hover:underline"
+                            onClick={async () => setDiff((await promptsApi.diff(revision.id)).diff)}>对比</button>
+                    {!revision.is_active && (
+                      <button className="text-sky-400 hover:underline" onClick={() => activatePrompt.mutate(revision.id)}>
+                        激活
+                      </button>
+                    )}
+                  </span>
+                </li>
+              ))}
+              {prompts.data?.length === 0 && <li className="text-sm text-slate-500">还没有提示词</li>}
+            </ul>
+            {diff && (
+              <pre className="mt-3 max-h-48 overflow-auto rounded bg-slate-950 p-2 text-xs text-slate-400">{diff}</pre>
+            )}
+          </div>
+          <div>
+            <textarea className="h-40 w-full rounded border border-slate-700 bg-slate-900 p-2 text-sm text-slate-100"
+                      placeholder="输入提示词内容，保存后会生成新版本…"
+                      value={draft} onChange={(event) => setDraft(event.target.value)} />
+            <input className="mt-2 w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                   placeholder="版本说明（可选）" value={note} onChange={(event) => setNote(event.target.value)} />
+            <button className="mt-2 rounded bg-sky-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+                    disabled={!draft.trim() || savePrompt.isPending} onClick={() => savePrompt.mutate()}>
+              保存为新版本
+            </button>
+          </div>
         </div>
       </section>
 

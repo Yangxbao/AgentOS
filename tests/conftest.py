@@ -59,6 +59,36 @@ def seeded_company(write_client) -> dict:
 
 
 @pytest.fixture
+def seeded_connection(write_client, seeded_company, monkeypatch):
+    monkeypatch.setenv("TEST_MODEL_KEY", "test-secret")
+    resp = write_client.post(
+        f"/api/v1/companies/{seeded_company['id']}/model-connections",
+        json={
+            "name": "测试连接",
+            "provider": "deepseek",
+            "model": "deepseek/deepseek-chat",
+            "api_key_ref": "env:TEST_MODEL_KEY",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+@pytest.fixture
+def seeded_employee(write_client, seeded_company, seeded_connection) -> dict:
+    resp = write_client.post(
+        f"/api/v1/companies/{seeded_company['id']}/employees",
+        json={
+            "name": "测试员工",
+            "title": "分析师",
+            "primary_model_id": seeded_connection["id"],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+@pytest.fixture
 def seeded_task(db_url) -> str:
     """插入一条真实任务记录，供接口/防护测试断言。"""
     task_id = new_id()

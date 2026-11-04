@@ -5,6 +5,7 @@ import type { HealthResponse } from './api/types'
 import OrganizationSettings from './pages/OrganizationSettings'
 import EmployeeDetailPage from './pages/EmployeeDetailPage'
 import EmployeesPage from './pages/EmployeesPage'
+import ImportExportPage from './pages/ImportExportPage'
 import ModelConnectionsPage from './pages/ModelConnectionsPage'
 import OrgPage from './pages/OrgPage'
 
@@ -51,6 +52,7 @@ function Shell() {
           <NavItem to="/org">组织架构</NavItem>
           <NavItem to="/employees">AI 员工</NavItem>
           <NavItem to="/settings/models">模型连接</NavItem>
+          <NavItem to="/settings/import-export">导入导出</NavItem>
           <NavItem to="/settings/organization">组织设置</NavItem>
         </nav>
         <div className="ml-auto">
@@ -65,6 +67,7 @@ function Shell() {
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/employees/:id" element={<EmployeeDetailPage />} />
           <Route path="/settings/models" element={<ModelConnectionsPage />} />
+          <Route path="/settings/import-export" element={<ImportExportPage />} />
           <Route path="/settings/organization" element={<OrganizationSettings />} />
           <Route path="*" element={<p className="p-6 text-slate-400">页面不存在</p>} />
         </Routes>
