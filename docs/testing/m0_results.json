@@ -1,0 +1,76 @@
+{
+  "started_at": "2026-11-05T01:28:44+0800",
+  "duration_s": 9.8,
+  "python": "3.13.14",
+  "results": [
+    {
+      "id": "V1",
+      "name": "LiteLLM 调用 DeepSeek",
+      "status": "BLOCKED",
+      "detail": "缺少 DEEPSEEK_API_KEY（.env 未配置）",
+      "evidence": {}
+    },
+    {
+      "id": "V2",
+      "name": "第二供应商调用",
+      "status": "SKIP",
+      "detail": "未配置第二供应商 Key（OPENAI/ANTHROPIC/GOOGLE/OPENROUTER 均为空）——如实标记，不计失败",
+      "evidence": {}
+    },
+    {
+      "id": "V3",
+      "name": "AgentAdapter 接口与能力声明",
+      "status": "PASS",
+      "detail": "checks={'caps_complete': True, 'file_ops_honest': True, 'approval_hook_honest': True, 'interrupt_raises': True}",
+      "evidence": {
+        "caps_complete": true,
+        "file_ops_honest": true,
+        "approval_hook_honest": true,
+        "interrupt_raises": true
+      }
+    },
+    {
+      "id": "V4",
+      "name": "双 Agent 顺序协作",
+      "status": "BLOCKED",
+      "detail": "缺少 DEEPSEEK_API_KEY",
+      "evidence": {}
+    },
+    {
+      "id": "V5",
+      "name": "LangGraph interrupt 审批",
+      "status": "FAIL",
+      "detail": "OperationalError: unable to open database file",
+      "evidence": {
+        "traceback": "Traceback (most recent call last):\n  File \"E:\\AgentOS\\scripts\\m0_verify.py\", line 177, in v5_langgraph_interrupt\n    with SqliteSaver.from_conn_string(ckpt_path) as ckpt:\n         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^\n  File \"C:\\Users\\MR\\.workbuddy\\binaries\\python\\versions\\3.13.12\\Lib\\contextlib.py\", line 141, in __enter__\n    return next(self.gen)\n  File \"E:\\AgentOS\\.venv\\Lib\\site-packages\\langgraph\\checkpoint\\sqlite\\__init__.py\", line 126, in from_conn_string\n    sqlite3.connect(\n    ~~~~~~~~~~~~~~~^\n        conn_string,\n        ^^^^^^^^^^^^\n        # https://ricardoanderegg.com/posts/python-sqlite-thread-safety/\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        check_same_thread=False,\n        ^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nsqlite3.OperationalError: unable to open database file\n"
+      }
+    },
+    {
+      "id": "V6",
+      "name": "持久化与重启保留",
+      "status": "PASS",
+      "detail": "重开后任务存在=True 失败记录数=1 error='V6 故意写入的失败样例' db=data/agentos.db",
+      "evidence": {}
+    },
+    {
+      "id": "V7",
+      "name": "Codex CLI headless",
+      "status": "BLOCKED",
+      "detail": "未检测到 codex 可执行文件。需用户授权安装（npm i -g @openai/codex）并完成 ChatGPT/API 认证",
+      "evidence": {}
+    },
+    {
+      "id": "V8",
+      "name": "CrewAI 对照实验",
+      "status": "SKIP",
+      "detail": "crewai 未安装（requirements-experiments.txt 可选依赖）",
+      "evidence": {}
+    }
+  ],
+  "counts": {
+    "PASS": 2,
+    "FAIL": 1,
+    "SKIP": 2,
+    "BLOCKED": 3
+  }
+}
