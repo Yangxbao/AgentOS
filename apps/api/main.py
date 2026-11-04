@@ -28,6 +28,7 @@ from apps.api.routers import (  # noqa: E402
     config_io,
     departments,
     employees,
+    governance,
     legacy,
     model_connections,
     positions,
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
         employees.router,
         model_connections.router,
         prompts.router,
+        governance.router,
         config_io.router,
     ):
         app.include_router(router, prefix="/api/v1")

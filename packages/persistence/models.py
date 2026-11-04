@@ -271,6 +271,42 @@ class PromptRevision(Base):
     )
 
 
+class AssignmentDecision(Base):
+    """派工决策（只增不改）：候选、分数、理由、审查人。"""
+
+    __tablename__ = "assignment_decision"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    company_id: Mapped[str] = mapped_column(ForeignKey("company.id"), index=True)
+    requested_by: Mapped[str] = mapped_column(String(64), default="local")
+    requirement: Mapped[dict] = mapped_column(JSON, default=dict)
+    candidates: Mapped[list] = mapped_column(JSON, default=list)
+    selected_employee_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reviewer_employee_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reviewer_meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    data_quality: Mapped[dict] = mapped_column(JSON, default=dict)
+    algorithm_version: Mapped[str] = mapped_column(String(16), default="m1.0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AuditLog(Base):
+    """审计日志：只增不改，无更新/删除路由。"""
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    actor_type: Mapped[str] = mapped_column(String(16), default="user")
+    actor_id: Mapped[str] = mapped_column(String(64), default="local")
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    target_type: Mapped[str] = mapped_column(String(32), default="")
+    target_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    request_id: Mapped[str] = mapped_column(String(32), default="-")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class UsageRecord(Base):
     __tablename__ = "usage_record"
 

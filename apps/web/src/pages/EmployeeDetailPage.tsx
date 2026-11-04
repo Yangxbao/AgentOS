@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { peopleApi } from '../api/people'
 import { promptsApi } from '../api/prompts'
+import { governanceApi } from '../api/governance'
 
 function errorText(error: unknown): string {
   return error instanceof ApiError ? `${error.code}：${error.message}` : String(error)
@@ -25,6 +26,14 @@ export default function EmployeeDetailPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
   const prompts = useQuery({ queryKey: ['prompts', id], queryFn: () => promptsApi.list(id) })
+  const permissions = useQuery({
+    queryKey: ['permissions', id],
+    queryFn: () => governanceApi.effectivePermissions(id),
+  })
+  const capabilities = useQuery({
+    queryKey: ['capabilities', id],
+    queryFn: () => governanceApi.capabilities(id),
+  })
   const [draft, setDraft] = useState('')
   const [note, setNote] = useState('')
   const [diff, setDiff] = useState('')
@@ -125,6 +134,30 @@ export default function EmployeeDetailPage() {
             </ul>
           )}
         </div>
+      </section>
+
+      <section className="rounded border border-slate-800 p-4">
+        <h3 className="text-sm font-medium text-slate-200">有效权限（三层交集，只许收窄）</h3>
+        <div className="mt-3 grid gap-2 text-xs text-slate-400 md:grid-cols-2">
+          {permissions.data && Object.entries(permissions.data.permissions).map(([key, value]) => (
+            <div key={key} className="flex items-start justify-between gap-2 rounded bg-slate-900 px-2 py-1">
+              <span className="text-slate-500">{key}</span>
+              <span className="text-right text-slate-300">
+                {JSON.stringify(value)}
+                <span className="ml-1 text-slate-600">
+                  ({permissions.data.sources[key]?.map((item) => item.layer).join(' ∩ ')})
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+        {capabilities.data && (
+          <p className="mt-2 text-xs text-slate-500">
+            能力：结构化输出 {String(capabilities.data.effective && (capabilities.data.effective as Record<string, unknown>).structured_output)} ·
+            文件操作 {String(capabilities.data.effective && (capabilities.data.effective as Record<string, unknown>).file_ops)} ·
+            模型可用 {String(capabilities.data.model_available)}
+          </p>
+        )}
       </section>
 
       <section className="rounded border border-slate-800 p-4">
