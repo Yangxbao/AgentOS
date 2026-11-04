@@ -1,9 +1,9 @@
 # AgentOS M1 计划与交接文档（单一文档）
 
-> 版本：**v1.1（修订版，计划审查通过后定稿）**｜日期：2026-11-05｜状态：**已完成二次审查修订，具备开始 B1 的条件**
+> 版本：**v1.2（最终计划版，仅修订审查人双池规则与 B1 测试计数）**｜日期：2026-11-05｜状态：**计划审查通过，可启动 B1**
 > 用途：这份文档自包含，可直接交给另一个 AI 或开发者执行 M1。不需要再读其他文档。
 > 文档约定：【已验证】= 有可复核证据（代码/实测）｜【设计】= 本文档提出的方案｜【已确认】= 所有者已拍板
-> 修订内容见文末 **§17 修订记录**；本版修正了端点计数、审查人推导、历史模型快照、本地 API 安全四类问题，并采纳 D-1~D-6 决策。
+> 修订内容见文末 **§17 修订记录**。v1.2 只改两处：§10.5 审查人改为"正式池/降级池"双池模型（修正 T6 不可达与 T5 分类重叠），以及 B1 测试数量 6→7、B6 计划总数核算。
 
 ---
 
@@ -186,7 +186,7 @@ docs/                            M0 调研/架构/产品文档（保留，不再
 
 **prompt_revision**：`employee_id` `version INT`（同员工唯一）`file_path`(`data/prompts/employees/<id>/vNNNN.md`) `content_hash`(SHA-256) `note` `created_by` `is_active BOOL`（同员工仅一条 true）
 
-**assignment_decision**：`company_id` `requested_by` `requirement JSON` `candidates JSON`（含每人 score/factors/rejected_reason）`selected_employee_id 可空` `reviewer_employee_id 可空` `reviewer_meta JSON`（`{independence, cross_model, reason, reason_code, warnings[], excluded[]}`，v1.1 新增）`data_quality JSON` `algorithm_version VARCHAR(16)`
+**assignment_decision**：`company_id` `requested_by` `requirement JSON` `candidates JSON`（含每人 score/factors/rejected_reason）`selected_employee_id 可空` `reviewer_employee_id 可空` `reviewer_meta JSON`（`{pool: formal|degraded, independence: T1..T6, degraded_reviewer: bool, management_review: bool, cross_model: bool, reason, reason_code, warnings[], excluded[]}`；v1.2 增加池与降级标记）`data_quality JSON` `algorithm_version VARCHAR(16)`
 
 **audit_log**：`owner_id` `actor_type`(user/agent/system) `actor_id` `action`(如 `employee.model_binding.update`) `target_type` `target_id` `detail JSON`（脱敏）`request_id`（只增，无 update/delete 路由）
 
@@ -354,7 +354,8 @@ POST /api/v1/companies/cmp_01/assignments/preview
   "candidates":[{"employee_id":"emp_dev","score":0.82,
     "factors":{"position_match":1.0,"review_chain_distance":0.9,"performance":0.5,"cost":0.6,"load":0.5}}],
   "excluded":[{"employee_id":"emp_ceo","reason":"capability_missing:tool.file.write"}],
-  "reviewer":{"employee_id":"emp_qa","cross_model":true,"independence":"T1",
+  "reviewer":{"employee_id":"emp_qa","pool":"formal","cross_model":true,"independence":"T1",
+              "degraded_reviewer":false,"management_review":false,
               "reason":"独立审查岗（质量部，can_review）× 跨部门 × 跨供应商"},
   "data_quality":{"performance":"unavailable","load":"unavailable"},
   "score_note":"m1.0 暂定权重；performance/load 为中性值 0.5，不构成真实绩效评估"}
@@ -589,78 +590,133 @@ score = 0.30*position_match + 0.20*review_chain_distance + 0.20*performance
 - 权重常量带 `algorithm_version = "m1.0"`，**标注为暂定规则**（D-3），改权重必须升版本，历史决策可追溯
 - 每个因子输出 0~1 原始分与权重贡献，前端直接画条形图
 
-### 10.5 审查人推导（v1.1 重设计：修正 v1.0 的逻辑漏洞）
+### 10.5 审查人推导（v1.2 定稿：正式池 + 降级池，双池不混用）
 
-**v1.0 的漏洞**：只沿 `doer.reports_to` 向上找。若 QA 汇报给开发（q=qa1 → dev1），而 dev1 执行任务，向上永远找不到 qa1，导致"测试员审查开发员"这一核心场景失效；同时该逻辑无法覆盖"测试员执行、由谁审查"。
+**历史问题**：
+- v1.0 只沿 `doer.reports_to` 上溯 → "QA 汇报给开发、开发执行任务"时永远找不到 QA，核心场景失效
+- v1.1 改成单池 + T1..T6，但自相矛盾：RC-3 要求所有候选都有 `can_review`，T6 又允许无审查资格者；伪代码在 `has_review_position(e)` 为假时直接 `continue`，**T6 永远不可达**；T5（管理链）与 T1..T4（部门/模型组合）分类重叠，同一个管理者可能被标成 T1 而丢失"管理审查"语义
 
-**新规则：候选池 + 硬约束 + 分级排序**（不再只沿一条链找）。
+**v1.2 规则：两个独立候选池，正式池优先；只有正式池为空才启用降级池。**
 
-#### 硬约束（任一不满足即排除，记录 `excluded_reason`）
-| 编号 | 约束 |
+#### 池 A：正式审查候选池（必须 `can_review=true`）
+
+| 编号 | 约束（任一不满足即排除并记录原因） |
 |---|---|
-| RC-1 | `reviewer.id != doer.id`（BR-10） |
+| RC-1 | `reviewer.id != doer.id`（BR-10，审查人不得是执行人） |
 | RC-2 | `reviewer.status == active` 且与 doer 同公司 |
 | RC-3 | **具备审查资格**：主岗或任一兼任岗的 `can_review == true` |
-| RC-4 | **能力覆盖**：reviewer 有效能力覆盖 `request.required_capabilities`（看得懂才能审） |
-| RC-5 | **独立性**：reviewer 不得是 doer 的下级（doer 出现在 reviewer 的 `reports_to` 上溯链中）。公司策略 `review_policy.allow_subordinate_review=false` 时**排除**；为 true 时保留但打 `subordinate_review` 警告 |
+| RC-4 | **能力覆盖**：有效能力覆盖 `request.required_capabilities` |
+| RC-5 | **独立性**：reviewer 不得是 doer 的下级（doer 出现在 reviewer 的 `reports_to` 上溯链中）。`review_policy.allow_subordinate_review=false` 时排除；为 true 时保留并打 `subordinate_review` 警告 |
 | RC-6 | reviewer 不在 `request.exclude_employee_ids` |
 | RC-7 | reviewer 有可用模型（§9.2 解析成功） |
 
-#### 分级（tier 越小越优先；同级内跨模型优先，再按汇报链距离/Hash 稳定排序）
-| Tier | 定义 | 说明 |
+正式池分级（**先判管理链，再判部门/模型**——这是 T5 不被 T1..T4 覆盖的关键）：
+
+| Tier | 触发条件（严格互斥，按顺序判定） | 标记 |
 |---|---|---|
-| **T1** | `can_review` 岗 + **不同部门** + 跨模型 | 最理想：独立审查岗、组织独立、模型独立 |
-| **T2** | `can_review` 岗 + 同部门 + 跨模型 | 同部门独立 QA，可接受 |
-| **T3** | `can_review` 岗 + 不同部门 + 同模型 | 组织独立但模型相同 |
-| **T4** | `can_review` 岗 + 同部门 + 同模型 | 最弱的独立审查岗 |
-| **T5** | 管理链上级（`reports_to` 上溯，`can_review=true`） | 上级审查下级；不是独立 QA，标注 `management_review` |
-| **T6** | 兜底：非审查岗但能力覆盖 + 不同部门 | 仅在无以上候选时使用，标注 `degraded_reviewer` |
-| — | 无候选 | 返回 `null` + 原因码（见下），**绝不硬凑** |
+| **T1** | 非管理链 ∧ 不同部门 ∧ 跨模型 | 最理想独立审查 |
+| **T2** | 非管理链 ∧ 同部门 ∧ 跨模型 | 同部门独立审查 |
+| **T3** | 非管理链 ∧ 不同部门 ∧ 同模型 | 组织独立、模型相同 |
+| **T4** | 非管理链 ∧ 同部门 ∧ 同模型 | 最弱的正式审查 |
+| **T5** | **管理链上级**（doer 沿 `reports_to` 上溯可达该员工）∧ `can_review=true`，部门与模型不限 | `management_review=true`；即使同时满足 T1 条件也归为 T5 |
 
-> 设计取舍：把"独立审查岗"排在"管理链上级"之前，是因为产品要求"开发员接受测试员独立验证"，管理者的审查容易变成走过场；但管理者仍可作为兜底，保证小团队不瘫痪。
+> 排序：T1 < T2 < T3 < T4 < T5。即"独立审查岗"整体优先于"管理链上级"；管理者是正式池内的兜底，但仍然**优先于任何降级审查人**。
+> 若管理者本身不具备 `can_review`，他不进入正式池；降级池要求"不同部门"，同部门管理者也不会进入降级池。若因此没有任何候选，返回 null（原因见下）。这是刻意的：宁可让用户指定，也不让"无审查能力的管理者"假装备审查过。
 
-#### 伪代码
+#### 池 B：降级审查候选池（仅当池 A 为空时构建）
+
+| 编号 | 约束 |
+|---|---|
+| DC-1 | `reviewer.id != doer.id` |
+| DC-2 | `reviewer.status == active` 且同公司 |
+| DC-3 | **必须不同部门**（同部门无审查资格者一律不允许，避免同组互评走过场） |
+| DC-4 | 能力覆盖 `request.required_capabilities` |
+| DC-5 | 不是 doer 的下级（同 RC-5 策略） |
+| DC-6 | 不在 `exclude_employee_ids` |
+| DC-7 | 有可用模型 |
+| DC-8 | **不具备 `can_review`**（有资格者已在池 A，避免重复与伪装） |
+
+池 B 只有 **T6** 一个等级，返回时强制 `degraded_reviewer=true`、`pool="degraded"`，并附警告 `degraded_reviewer_used`。**不得在展示层写成"独立审查人"**。
+
+#### 伪代码（每个 tier 都有可达路径）
+
 ```python
 def derive_reviewer(doer, request, company) -> ReviewerDecision:
-    pool, excluded = [], []
+    formal, excluded = [], []
+
+    # ---- 池 A：正式审查 ----
     for e in active_employees(company):
-        if e.id == doer.id: excluded.append((e, "self")); continue
-        if not has_review_position(e): excluded.append((e, "no_review_role")); continue
+        if e.id == doer.id:                          excluded.append((e, "self")); continue
         if not capability_covers(e, request.required_capabilities):
             excluded.append((e, "capability_missing")); continue
-        if is_subordinate_of(e, doer):
-            if not company.review_policy.allow_subordinate_review:
-                excluded.append((e, "subordinate_not_allowed")); continue
-            e.warnings.append("subordinate_review")
-        if e.id in request.exclude_employee_ids: excluded.append((e, "excluded")); continue
-        if not resolve_model(e): excluded.append((e, "no_model")); continue
-        pool.append((e, tier_of(e, doer)))          # T1..T6
+        if is_subordinate_of(e, doer) and not company.review_policy.allow_subordinate_review:
+            excluded.append((e, "subordinate_not_allowed")); continue
+        if e.id in request.exclude_employee_ids:     excluded.append((e, "excluded")); continue
+        if not resolve_model(e):                     excluded.append((e, "no_model")); continue
+        if not has_review_position(e):               excluded.append((e, "no_review_role")); continue
+        formal.append(FormalCandidate(e, tier=classify_formal(e, doer)))
+
+    pool, mode = formal, "formal"
+
+    # ---- 池 B：仅当正式池为空才构建 ----
+    if not formal:
+        degraded = []
+        for e in active_employees(company):
+            if e.id == doer.id: continue
+            if has_review_position(e): continue                  # DC-8
+            if e.department_id == doer.department_id: continue    # DC-3 必须不同部门
+            if not capability_covers(e, request.required_capabilities): continue
+            if is_subordinate_of(e, doer) and not company.review_policy.allow_subordinate_review: continue
+            if e.id in request.exclude_employee_ids: continue
+            if not resolve_model(e): continue
+            degraded.append(DegradedCandidate(e, tier="T6", degraded_reviewer=True))
+        pool, mode = degraded, "degraded"
+
     if not pool:
-        return ReviewerDecision(None, reason_code=classify_empty(excluded), excluded=excluded)
-    pool.sort(key=lambda t: (t.tier, not t.cross_model, org_distance(doer, t.e), t.e.id))
+        code = classify_empty(excluded, doer, company)
+        return ReviewerDecision(None, pool=None, reason_code=code,
+                                suggestion=suggest_for(code), excluded=excluded)
+
+    pool.sort(key=lambda c: (TIER_ORDER[c.tier], not c.cross_model, org_distance(doer, c.e), c.e.id))
     best = pool[0]
-    return ReviewerDecision(best.e, independence=best.tier, cross_model=best.cross_model,
-                            warnings=best.e.warnings + best.degraded_notes,
-                            reason=explain(best), excluded=excluded)
+    return ReviewerDecision(
+        best.e, pool=mode, independence=best.tier,
+        degraded_reviewer=(mode == "degraded"),
+        cross_model=provider_of(best.e) != provider_of(doer),
+        management_review=is_management_ancestor(best.e, doer),
+        warnings=best.warnings + (["degraded_reviewer_used"] if mode == "degraded" else []),
+        reason=explain(best), excluded=excluded)
+
+
+def classify_formal(e, doer) -> str:
+    if is_management_ancestor(e, doer):        # 先判管理链：T5 不被 T1..T4 覆盖
+        return "T5"
+    same_dept = (e.department_id == doer.department_id)
+    cross     = (provider_of(e) != provider_of(doer))
+    return {(False, True): "T1", (True, True): "T2",
+            (False, False): "T3", (True, False): "T4"}[(same_dept, cross)]
 ```
-`tier_of()` 判定顺序：不同部门/同部门 × 跨模型/同模型 → T1..T4；否则若在 `reports_to` 上溯链中 → T5；否则 T6。
 
-#### 找不到时的原因码（必须返回明确原因 + 建议）
-| reason_code | 含义 | suggestion |
+`is_management_ancestor(e, doer)`：从 `doer.reports_to` 起上溯（≤20 层），链上出现 `e.id` 即为真，同时用于 RC-5 的"下级"判定（方向相反）。
+
+#### 两份池都为空时的原因码（必须返回 `null` + reason_code + suggestion）
+| reason_code | 判定条件 | suggestion |
 |---|---|---|
-| `no_eligible_reviewer` | 公司内无任何满足 RC-1..RC-7 的人 | 增加具备 `can_review` 的岗位/员工，或手动指定 |
-| `only_subordinate_candidates` | 唯一合格者是 doer 的下级，被策略排除 | 开启 `allow_subordinate_review`，或指定其他审查人 |
-| `capability_not_covered` | 有审查岗但能力不覆盖 | 提升审查人能力授权，或降低任务能力要求 |
-| `company_has_single_employee` | 公司只有 1 人 | 至少招聘 1 名审查岗员工 |
-| `doer_has_no_review_role` | 执行人自己是唯一审查岗 | 增加第二名审查岗员工 |
+| `company_has_single_employee` | 公司 active 员工数 = 1 | 至少招聘 1 名审查岗员工 |
+| `only_subordinate_candidates` | 存在满足能力者，但全部是 doer 的下级且策略禁止 | 开启 `allow_subordinate_review`，或指定其他审查人 |
+| `capability_not_covered` | 有审查岗员工，但无人能力覆盖任务 | 提升审查人能力授权，或降低任务能力要求 |
+| `no_eligible_reviewer` | 以上都不成立（如审查岗都在同部门且无资格降级） | 增加跨部门审查岗，或手动指定审查人 |
 
-#### 两种执行场景的期望结果
-| 场景 | 组织 | 期望 |
+#### 测试场景（B5 必须覆盖）
+| 编号 | 给定 | 期望 |
 |---|---|---|
-| **开发员执行** | dev1（研发部/模型A/can_review=false）、qa1（质量部/模型B/can_review=true）、cto（管理/模型A/can_review=true） | 审查人 = **qa1**（T1：独立岗+跨部门+跨模型）；不是 cto（T5） |
-| **测试员执行** | 同上，但 dev1 具备 `can_review=true` | 审查人 = **dev1**（T1：不同部门+跨模型），实现双向交叉验证；若 dev1 无 `can_review`，则 = cto（T5） |
+| B8-1a | 开发员 dev1 执行；qa1（质量部/模型B/`can_review`）、cto（管理/模型A/`can_review`） | 选 **qa1**（T1，跨部门+跨模型）；不是 cto（T5） |
+| B8-1b | 测试员 qa1 执行；dev1（研发部/模型A/`can_review=true`）、cto | 选 **dev1**（T1，跨部门+跨模型）；dev1 无 `can_review` 时选 cto（T5），**不启用降级池** |
+| B8-9 **正式优先于 T6** | 正式池只有同部门同模型的 T4；降级池有一位不同部门跨模型但无 `can_review` 的员工 | 必须选 **T4**，`degraded_reviewer=false`；证明正式池不被降级池"更优分数"抢占 |
+| B8-10 **空池触发 T6** | 全公司唯一有 `can_review` 的人就是 doer 自己；另有不同部门、能力覆盖、无 `can_review` 的员工 | 选该员工，`independence=T6`、`degraded_reviewer=true`、含 `degraded_reviewer_used` 警告 |
+| B8-11 **两池皆空** | 公司只有 doer + 同部门无资格同事 | 返回 `null` + `reason_code` + `suggestion`，不返回任何"凑数"审查人 |
 
-约束回顾：审查人只是**建议**，最终任命权在用户；M1 不执行审查，M3 才产生审查报告。
+约束回顾：审查人只是**建议**，最终任命权在用户；M1 不执行审查，M3 才产生审查报告。降级审查人只能出现在"建议"里且必须带标记，M3 的审查报告需显示该标记。
 
 ### 10.6 管理者与审批边界
 | 角色 | 能做 | 绝对不能做 |
@@ -678,7 +734,7 @@ M2 的 task-engine 派工时调用同一个 `assignment.preview()` 拿候选集�
 | 编号 | 给定 | 期望 |
 |---|---|---|
 | B8-1a **开发员执行** | dev1（研发部/模型A/can_review=false）、qa1（质量部/模型B/can_review=true）、cto（管理/模型A/can_review=true） | 审查人 = qa1，`independence=T1`、`cross_model=true`；不含 cto |
-| B8-1b **测试员执行** | qa1 执行，dev1 具备 `can_review=true`（不同部门、模型A） | 审查人 = dev1，`independence=T1`、`cross_model=true`（交叉验证）；dev1 无审查资格时退化为 cto（T5） |
+| B8-1b **测试员执行** | qa1 执行，dev1 具备 `can_review=true`（不同部门、模型A） | 审查人 = dev1，`independence=T1`、`cross_model=true`（交叉验证）；dev1 无审查资格时选 cto（T5），**此时仍不启用降级池** |
 | B8-2 | dev1 权限 file_ops=[read]，任务需 file.write | dev1 被 `tool_denied:file.write` 排除，理由明确 |
 | B8-3 | 只有 dev1 一人 | 审查人 `null`，`reason_code=company_has_single_employee`，附 suggestion |
 | B8-4 | dev1(A)、dev2(B) 同岗同部门、均可审 | 跨模型者优先（T2 > T4） |
@@ -686,6 +742,11 @@ M2 的 task-engine 派工时调用同一个 `assignment.preview()` 拿候选集�
 | B8-6 | 唯一合格审查人是 doer 的直接下属 | `reason_code=only_subordinate_candidates`，不选下属；开启策略后才选并带 `subordinate_review` 警告 |
 | B8-7 | 审查人能力不覆盖任务 | `reason_code=capability_not_covered`，不选不合格者 |
 | B8-8 | 派工预览响应 | 必含 `data_quality` 与 `score_note`；`performance/load` 为 0.5 且标注 unavailable |
+| B8-9 | 正式池只有 T4，降级池有不同部门跨模型但无 `can_review` 者 | 选 T4，`degraded_reviewer=false`（正式优先，见 §10.5） |
+| B8-10 | 唯一有 `can_review` 的人是 doer；另有不同部门、能力覆盖、无资格者 | 选该员工，`independence=T6`、`degraded_reviewer=true`、含 `degraded_reviewer_used` |
+| B8-11 | doer + 同部门无资格同事，两池皆空 | 返回 `null` + `reason_code` + `suggestion`，不返回凑数审查人 |
+
+> 审查人相关完整规则与用例见 §10.5；本表用于 B5 验收时逐条打勾。
 
 ---
 
@@ -776,8 +837,8 @@ S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不�
 ⑦ 前端按 §8.0 清单装依赖（shadcn/ui + TanStack Query + RHF + zod），建 `api/client.ts` 与 `queryClient`
 ⑧ CI 加迁移双路径测试 + 安全用例
 
-**验收**：空库 `alembic upgrade head` 成功；M0 库 `stamp m0_baseline && upgrade head` 后 schema 与新库一致；`pytest` 7 个旧测试全过 + 迁移测试 + S-11..S-14 全过；`/api/health`、`/api/tasks` 行为与 M0 一致；`npm run build` 通过。
-**新增测试下限**：6 个（迁移 2 + 本地防护 4）。
+**验收**：空库 `alembic upgrade head` 成功；M0 库 `stamp m0_baseline && upgrade head` 后 schema 与新库一致；`pytest` 7 个旧测试全过 + 迁移测试 2 个 + 本地防护 5 个（S-11..S-14 + 放行对照）全过；`/api/health`、`/api/tasks` 行为与 M0 一致；`npm run build` 通过。
+**新增测试下限**：**7 个**（迁移 2 + 本地防护 5：S-11～S-14 四项 + "正常前端请求放行"对照 1 项）。
 **风险**：autogenerate 对 SQLite 噪音大 → 手工裁剪基线 + schema diff 脚本；Origin 校验误杀开发环境 → 用"正常请求放行"对照用例兜底。
 
 ### B2 组织域（API-01..16）
@@ -808,8 +869,8 @@ S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不�
 ### B5 权限 + 派工预览 + 审计 + 组织图编辑（API-26..29 + 40..41 + 45 共 7 个）
 **范围**：迁移 `m1_b5_assignment_audit`；`packages/permissions/`（effective/policy/audit）；`organization/assignment.py`（硬过滤 8 + 5 因子 + **§10.5 新审查人规则** + algorithm_version）；API effective-permissions/permission-overrides/capabilities、员工审计（API-26）、assignments/preview、assignments/{id}、audit；前端权限 Tab、派工台（含 data_quality 徽标）、组织图可编辑、审计页。
 
-**验收**：三层交集 12 组全绿；**B8-1a/1b/2/3/4/5/6/7/8 全过**；每次 preview 落 assignment_decision（含 factors、reviewer、independence、algorithm_version、data_quality）；`PERMISSION_WIDEN_DENIED` + 审计；12 类事件各触发一次且无更新接口；拖拽 10 次无错乱（含 BR-04a-e 校验）。
-**新增测试下限**：26 个（权限 12 + 派工/审查 9 + 审计 3 + 前端纯函数 2）。
+**验收**：三层交集 12 组全绿；**B8-1a/1b/2/3/4/5/6/7/8/9/10/11 全过**（审查人双池规则见 §10.5）；每次 preview 落 assignment_decision（含 factors、reviewer、independence、pool、degraded_reviewer、algorithm_version、data_quality）；`PERMISSION_WIDEN_DENIED` + 审计；12 类事件各触发一次且无更新接口；拖拽 10 次无错乱（含 BR-04a-e 校验）。
+**新增测试下限**：**29 个**（权限 12 + 派工/审查 12（含 B8-9/10/11 三个审查池用例）+ 审计 3 + 前端纯函数 2）。
 **依赖说明**：B5 依赖 B2 的 `position.can_review` 与 B3 的 `employee.reports_to`/能力数据，均为已交付项，无反向依赖。
 
 ### B6 端到端验收
@@ -819,7 +880,10 @@ S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不�
 3. **权限与派工**：限制某员工 file.write→派"需写文件"任务→被硬过滤→**开发员执行时审查人 = QA（T1），测试员执行时审查人 = 开发（T1）**，且均 ≠ 执行人、跨模型优先
 
 **交付**：`docs/testing/M1_TEST_REPORT.md`（真实命令 + 输出摘要 + 失败项 + 未测项）、`M1_FINAL_HANDOFF.md`（对齐 M0 的 14 项格式，单文档）、更新 README/FEATURE_MATRIX/ROADMAP、`M1` tag、`scripts/demo_m1_*.py`。
-**门槛**：全量 pytest **≥75** 通过（M0 的 7 个 + B1 6 + B2 10 + B3 20 + B4 16 + B5 26 = 85 计划下限，取 75 为硬门槛留余量）；45 个端点按 ID 逐项验收打勾；ruff 全绿；前端构建通过；三场景真实跑通有日志；无 P0/P1 缺陷。
+**门槛**：
+- **计划测试总数 89** = M0 7 + B1 7 + B2 10 + B3 20 + B4 16 + B5 29
+- **硬门槛 ≥75 通过**——这是**最低验收门槛**（允许个别用例因环境原因标记 skip，但 skip 必须逐条说明），**不是计划测试总数**；计划总数 89 才是完整交付目标
+- 45 个端点按 ID 逐项验收打勾；ruff 全绿；前端构建通过；三场景真实跑通有日志；无 P0/P1 缺陷
 
 ---
 
@@ -890,10 +954,33 @@ S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不�
 
 ## 17. 修订记录
 
-### v1.1（2026-11-05，二次审查后修订，当前版本）
+### v1.2（2026-11-05，最终计划版，当前版本）
+**仅处理两处问题，未重设计 M1、未编码。**
+
+1. **§10.5 审查人改为双池模型（修正 v1.1 的三处逻辑矛盾）**
+   - 问题：RC-3 要求所有候选 `can_review=true`，T6 却允许无资格者；伪代码在 `has_review_position(e)` 失败时直接 `continue`，**T6 永远不可达**；T5 与 T1..T4 按部门/模型分类时重叠，管理者可能被标成 T1 而丢失"管理审查"语义。
+   - 修正：拆成 **池 A 正式审查（RC-1..RC-7，必须 `can_review`，T1..T5）** 与 **池 B 降级审查（DC-1..DC-8，仅当池 A 为空时构建，必须不同部门、不得有 `can_review`，只有 T6）**。
+   - **T5 判定提前**：`classify_formal()` 先判"是否管理链上级"，是则直接 T5，不再走部门/模型分支；排序仍为 T1<T2<T3<T4<T5<T6，正式池整体优先于降级池。
+   - T6 强制 `degraded_reviewer=true`、`pool="degraded"`、警告 `degraded_reviewer_used`，展示层不得写成"独立审查人"。
+   - 伪代码改为两段式构建，每个 tier 都有可达路径；新增 `classify_empty()` 原因码与 suggestion。
+   - 新增 3 个测试场景：B8-9（正式 T4 优先于更"好看"的 T6）、B8-10（正式池空时 T6 触发）、B8-11（两池皆空返回 null + reason_code）。
+   - 保留 B8-1a（开发员执行→QA 审查）与 B8-1b（测试员执行→开发交叉审查）。
+
+2. **B1 测试数量修正**
+   - 原写"迁移 2 + 本地防护 4 = 6"，但 §11.8 明确 S-11..S-14 四项 + "正常前端请求放行"对照一项 = **5 项**。
+   - 修正 B1 新增测试下限为 **7 个**（迁移 2 + 本地防护 5）。
+   - B5 因新增 3 个审查池用例，下限由 26 调为 **29**（权限 12 + 派工/审查 12 + 审计 3 + 前端 2）。
+   - B6 计划测试总数：**89** = M0 7 + B1 7 + B2 10 + B3 20 + B4 16 + B5 29。
+   - **核算口径说明**：审查意见给出的 86 = 7 + 7 + 10 + 20 + 16 + 26，是按"B5 仍为 26"计算的；本次 §10.5 新增 3 个审查池测试后为 89。若坚持 86，只能把 3 个新场景并入既有用例，会降低可追溯性，不推荐。
+   - **≥75 保留为最低验收门槛**，并明确它**不是计划测试总数**；计划总数 89 才是完整交付目标。
+
+3. 未修改：D-1~D-6 决策、数据库表结构、45 个端点清单、B1~B6 范围、M0 的 7 个回归测试。
+
+### v1.1（2026-11-05，二次审查后修订）
 **必须修正项（用户提出）**
 1. **API 计数**：原文标注 38、分组写"员工 12"但实际列 13 项。本版逐项编号为 **45 个端点**（API-01..45），并给出每批交付数量（B2 16 / B3 14 / B4 8 / B5 7，B1 为 0），验收按 ID 打勾；同时说明审查意见的 44 是按"员工 12"推算的差异来源。
 2. **审查人推导重设计**（§10.5）：废弃"只沿 reports_to 向上找"的逻辑，改为 **候选池 + 7 条硬约束（RC-1..RC-7）+ T1..T6 分级排序**，新增 `position.can_review` 字段；覆盖"开发员执行 → QA 审查"与"测试员执行 → 开发交叉审查"两种场景；明确"找不到合格审查人返回 null + reason_code + suggestion，不硬凑"。
+    > 该版单池方案存在 T6 不可达与 T5 分类重叠问题，已在 **v1.2 被"正式池/降级池"双池模型取代**，以 §10.5 当前内容为准。
 3. **历史模型快照**：实测核对 M0 代码（`sequential.py:52/74`）确认 `agent_run.model` 与 `usage_record.model` **已是快照**，无需新增模型字段；但发现两张表**都缺 `employee_id`**，B3 补 `usage_record.employee_id`（原计划只补 agent_run），并新增 A3-6/7/8 三个测试（历史不被改写、降级、缓存）。
 4. **本地 API 安全**（§7.1 + §11.8）：B1 新增 Host 校验、可信 Origin、`X-AgentOS-Client` 自定义头、`Sec-Fetch-Site` 拒绝跨站、写请求校验；明确默认只监听 `127.0.0.1`、禁止默认 `0.0.0.0`；新增 S-11..S-14 四项测试。
 
@@ -909,6 +996,7 @@ S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不�
 11. **批次依赖倒置（共 3 处）**：① effective-permissions/permission-overrides/capabilities 依赖 B5 权限模块 → 移到 B5；② `GET /employees/{id}/prompts` 依赖 B4 的 `prompt_revision` → 移到 B4；③ `GET /employees/{id}/audit` 依赖 B5 的 `audit_log` → 移到 B5。最终 B3 员工端点 8 个、B4 增 1 个、B5 增 4 个。
 12. **B2 验收依赖未建表**：v1.0 要求 B2 验"含员工部门不可删"，但 employee 表在 B3 → 该项移到 B3，B2 只验"含子部门不可删"。
 13. **测试数量与门槛脱节**：v1.0 B6 门槛 ≥50，但各批下限相加已 85 → 门槛改为 **≥75**（留余量），并给出各批下限（6/10/20/16/26）。
+    > 后续修正：v1.2 将 B1 改为 7、B5 改为 29（新增 3 个审查池用例），计划总数由 85 变为 **89**；≥75 仍为最低验收门槛。
 14. **组织图员工节点**：B2 无员工数据 → 明确 B2 只渲染部门/岗位，员工节点 B3 接入。
 
 **决策落地**
