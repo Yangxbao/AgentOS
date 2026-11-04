@@ -35,14 +35,20 @@
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-cp .env.example .env            # 填入 DEEPSEEK_API_KEY
-uvicorn apps.api.main:app --reload --port 8000
+pip install -e .                # 可编辑安装，导入不依赖 sys.path
+copy .env.example .env          # 填入 DEEPSEEK_API_KEY
+alembic upgrade head            # 建库/升级（已有 M0 库先 alembic stamp m0_baseline）
+python scripts/run_api.py --port 8000   # 默认只监听 127.0.0.1
 
 # 前端
 cd apps/web && npm install && npm run dev
 
-# M0 技术验证
-python scripts/m0_verify.py
+# 测试
+pytest tests/ -v
+ruff check apps packages scripts tests migrations
+
+# 备份
+python scripts/backup_db.py
 ```
 
 ## 许可证

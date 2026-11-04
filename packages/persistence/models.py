@@ -58,7 +58,9 @@ class AgentRun(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(64), default="local")
     task_run_id: Mapped[str] = mapped_column(ForeignKey("task_run.id"), index=True)
-    employee_key: Mapped[str] = mapped_column(String(64))  # M0 用字符串键，M1 换 employee 表 FK
+    # M0 用字符串键；B1 起新增 employee_id 双写过渡（M2 切换为主引用）
+    employee_key: Mapped[str] = mapped_column(String(64))
+    employee_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     role: Mapped[str] = mapped_column(String(64), default="")
     adapter_type: Mapped[str] = mapped_column(String(16), default="api")
     model: Mapped[str] = mapped_column(String(128), default="")

@@ -1,68 +1,59 @@
-"""AgentOS API — M0 最小骨架。
+"""AgentOS API 入口（B1：分层 + 生命周期 + 统一错误 + 本地防护）。
 
-提供：/api/health、/api/tasks（真实读库）、/api/employees/{key}/health（连接测试）。
-启动：uvicorn apps.api.main:app --reload --port 8000
+启动（推荐）：python scripts/run_api.py --port 8000
+开发热重载：uvicorn apps.api.main:app --reload --host 127.0.0.1 --port 8000
 """
 from __future__ import annotations
 
-import os
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
 
-# 允许以仓库根目录运行 uvicorn 时 import packages
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+ROOT = Path(__file__).resolve().parents[2]
+# 兜底：包未安装（pip install -e .）时仍可从仓库根目录运行；已安装后此分支不生效
+try:  # pragma: no cover - 取决于运行环境
+    import packages  # noqa: F401
+except ModuleNotFoundError:  # deprecated fallback, 保留至 M1 结束
+    sys.path.insert(0, str(ROOT))
 
-from packages.agent_core import LiteLLMAdapter  # noqa: E402
-from packages.persistence import Task, get_session, init_db  # noqa: E402
+load_dotenv(ROOT / ".env")
 
-app = FastAPI(title="AgentOS API", version="0.1.0-m0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from apps.api.errors import RequestIdMiddleware, register_exception_handlers  # noqa: E402
+from apps.api.routers import legacy  # noqa: E402
+from apps.api.security.local_guard import LocalGuardMiddleware, config_from_env  # noqa: E402
+from packages.persistence import init_db  # noqa: E402
 
 
-@app.on_event("startup")
-def _startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     init_db()
+    yield
 
 
-@app.get("/api/health")
-def health() -> dict:
-    return {"status": "ok", "mode": os.environ.get("AGENTOS_MODE", "local"), "version": "0.1.0-m0"}
+def create_app() -> FastAPI:
+    app = FastAPI(title="AgentOS API", version="0.1.0-m1b1", lifespan=lifespan)
+
+    guard_config = config_from_env()
+
+    # 中间件顺序：后添加的在最外层。RequestId 最外 → CORS → LocalGuard → 路由
+    app.add_middleware(LocalGuardMiddleware, config=guard_config)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=guard_config.trusted_origins,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "X-AgentOS-Client", "X-AgentOS-Token", "If-Match", "Idempotency-Key"],
+        expose_headers=["X-Request-ID"],
+        max_age=600,
+    )
+    app.add_middleware(RequestIdMiddleware)
+
+    register_exception_handlers(app)
+    app.include_router(legacy.router, prefix="/api")
+    return app
 
 
-@app.get("/api/tasks")
-def list_tasks() -> list[dict]:
-    """真实读库返回任务列表（M0 验证持久化的可视化入口）。"""
-    with get_session() as session:
-        tasks = session.execute(select(Task).order_by(Task.created_at.desc()).limit(50)).scalars().all()
-        return [
-            {
-                "id": t.id,
-                "title": t.title,
-                "state": t.state,
-                "rework_count": t.rework_count,
-                "created_at": t.created_at.isoformat() if t.created_at else None,
-            }
-            for t in tasks
-        ]
-
-
-@app.get("/api/employees/{model:path}/health")
-async def employee_health(model: str) -> dict:
-    """连接测试：对指定 litellm 模型做最小真实调用（如 deepseek/deepseek-chat）。"""
-    adapter = LiteLLMAdapter(model=model, timeout=15.0)
-    status = await adapter.health_check()
-    if not status.ok:
-        raise HTTPException(status_code=502, detail=status.detail)
-    return {"ok": True, "model": model, "detail": status.detail}
+app = create_app()
