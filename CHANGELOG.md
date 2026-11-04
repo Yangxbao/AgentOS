@@ -2,6 +2,22 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased] - M1 / B2
+
+### Added
+- 组织域数据模型：`company` / `department` / `position`（含 `can_review`、`review_capability_tags`）
+- 迁移 `m1_b2_org`
+- 领域服务 `packages/organization/`：公司、部门树（深度/成环/删除保护）、岗位、组织树组装
+- 16 个 `/api/v1` 端点（API-01..16）：公司 5、部门 6、岗位 5
+- 前端页面：组织架构（React Flow 只读）、组织设置（公司/部门/岗位 CRUD）
+- B1 补充验收测试 9 个（错误包络/request_id、分页边界、CORS 预检、Referer、本地令牌、备份脚本）
+
+### Fixed
+- 默认数据库路径改为仓库绝对路径，避免从其他目录启动时静默建空库
+- 启动时仅空库 `create_all`，已有库必须迁移，防止结构漂移
+- LocalGuard 拒绝响应的 `request_id` 由 `-` 改为真实请求 ID
+- 迁移测试改为动态读取 Alembic head，避免新增 revision 后断言失效
+
 ## [Unreleased] - M1 / B1
 
 ### Added

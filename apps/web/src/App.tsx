@@ -1,50 +1,74 @@
-import { useEffect, useState } from 'react'
-import { ApiError, api } from './api/client'
+import { useQuery } from '@tanstack/react-query'
+import { Navigate, NavLink, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
+import { api } from './api/client'
 import type { HealthResponse } from './api/types'
+import OrganizationSettings from './pages/OrganizationSettings'
+import OrgPage from './pages/OrgPage'
 
-type HealthStatus = 'checking' | 'connected' | 'disconnected'
+function HealthBadge() {
+  const health = useQuery({
+    queryKey: ['health'],
+    queryFn: () => api.get<HealthResponse>('/api/health'),
+    retry: 0,
+    refetchInterval: 30_000,
+  })
 
-function App() {
-  const [status, setStatus] = useState<HealthStatus>('checking')
-  const [detail, setDetail] = useState('')
-
-  useEffect(() => {
-    const controller = new AbortController()
-    api
-      .get<HealthResponse>('/api/health', { signal: controller.signal })
-      .then((data) => {
-        setStatus('connected')
-        setDetail(`v${data.version} · ${data.mode}`)
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return
-        setStatus('disconnected')
-        setDetail(error instanceof ApiError ? error.message : '未知错误')
-      })
-    return () => controller.abort()
-  }, [])
-
+  if (health.isLoading) return <span className="text-xs text-slate-500">检测后端…</span>
+  if (health.isError) {
+    return <span className="text-xs text-red-400">后端未连接</span>
+  }
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-gray-950 text-gray-100">
-      <h1 className="text-3xl font-bold">AgentOS — AI 数字员工协作操作系统</h1>
-      <p className="text-gray-400">M1 / B1 骨架运行中</p>
-      <p
-        className={
-          status === 'connected'
-            ? 'text-green-400'
-            : status === 'disconnected'
-              ? 'text-red-400'
-              : 'text-gray-500'
-        }
-      >
-        {status === 'checking'
-          ? '正在检测后端连接…'
-          : status === 'connected'
-            ? `后端已连接（${detail}）`
-            : `后端未连接：${detail}`}
-      </p>
+    <span className="text-xs text-emerald-400">
+      后端已连接 · v{health.data?.version}
+    </span>
+  )
+}
+
+function NavItem({ to, children }: { to: string; children: string }) {
+  return (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        `rounded px-3 py-1.5 text-sm ${
+          isActive ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+        }`
+      }
+    >
+      {children}
+    </NavLink>
+  )
+}
+
+function Shell() {
+  return (
+    <div className="flex h-screen flex-col bg-slate-950 text-slate-100">
+      <header className="flex items-center gap-4 border-b border-slate-800 px-4 py-3">
+        <span className="font-semibold">AgentOS</span>
+        <nav className="flex items-center gap-1">
+          <NavItem to="/org">组织架构</NavItem>
+          <NavItem to="/settings/organization">组织设置</NavItem>
+        </nav>
+        <div className="ml-auto">
+          <HealthBadge />
+        </div>
+      </header>
+
+      <main className="min-h-0 flex-1 overflow-auto">
+        <Routes>
+          <Route path="/" element={<Navigate to="/org" replace />} />
+          <Route path="/org" element={<OrgPage />} />
+          <Route path="/settings/organization" element={<OrganizationSettings />} />
+          <Route path="*" element={<p className="p-6 text-slate-400">页面不存在</p>} />
+        </Routes>
+      </main>
     </div>
   )
 }
 
-export default App
+export default function App() {
+  return (
+    <Router>
+      <Shell />
+    </Router>
+  )
+}

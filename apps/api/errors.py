@@ -13,6 +13,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from packages.shared.errors import DomainError
+
 logger = logging.getLogger("agentos.api")
 
 _STATUS_CODE_MAP = {
@@ -68,6 +70,10 @@ def error_response(
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(request: Request, exc: ApiError) -> JSONResponse:
+        return error_response(request, exc.status_code, exc.code, exc.message, exc.detail)
+
+    @app.exception_handler(DomainError)
+    async def _domain_error(request: Request, exc: DomainError) -> JSONResponse:
         return error_response(request, exc.status_code, exc.code, exc.message, exc.detail)
 
     @app.exception_handler(RequestValidationError)

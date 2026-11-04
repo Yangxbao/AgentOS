@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -84,6 +84,71 @@ class TaskEvent(Base):
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     type: Mapped[str] = mapped_column(String(48))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Company(Base):
+    """公司：组织根节点，承载策略（M1 B2）。"""
+
+    __tablename__ = "company"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    policy: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active|archived
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("owner_id", "name", name="uq_company_owner_name"),
+    )
+
+
+class Department(Base):
+    """部门树（parent_id 自引用），深度 0 起，最大 8 层。"""
+
+    __tablename__ = "department"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    company_id: Mapped[str] = mapped_column(ForeignKey("company.id"), index=True)
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("department.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(120))
+    code: Mapped[str] = mapped_column(String(40), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    depth: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", name="uq_department_company_name"),
+    )
+
+
+class Position(Base):
+    """岗位模板：职责、默认权限、审查资格（can_review，B5 审查人推导依赖）。"""
+
+    __tablename__ = "position"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    company_id: Mapped[str] = mapped_column(ForeignKey("company.id"), index=True)
+    department_id: Mapped[str | None] = mapped_column(ForeignKey("department.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    level: Mapped[str] = mapped_column(String(24), default="")
+    is_managerial: Mapped[bool] = mapped_column(Boolean, default=False)
+    can_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    review_capability_tags: Mapped[list] = mapped_column(JSON, default=list)
+    responsibilities: Mapped[str] = mapped_column(Text, default="")
+    default_permissions: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", name="uq_position_company_name"),
+    )
 
 
 class UsageRecord(Base):

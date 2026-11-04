@@ -41,6 +41,24 @@ def actor() -> ActorContext:
 
 
 @pytest.fixture
+def write_client(client):
+    """带可信 Origin 与自定义头的客户端：业务写请求用；安全测试仍用裸 client。"""
+    client.headers.update({"Origin": "http://127.0.0.1:5173", "X-AgentOS-Client": "web"})
+    return client
+
+
+@pytest.fixture
+def seeded_company(write_client) -> dict:
+    """B2：建一家默认公司并返回其响应体（含 id / updated_at）。"""
+    resp = write_client.post(
+        "/api/v1/companies",
+        json={"name": "测试公司", "description": "B2 夹具"},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+@pytest.fixture
 def seeded_task(db_url) -> str:
     """插入一条真实任务记录，供接口/防护测试断言。"""
     task_id = new_id()

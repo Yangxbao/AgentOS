@@ -116,9 +116,13 @@ def test_m0_legacy_database_upgrade_preserves_data(tmp_path, monkeypatch):
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
     engine.dispose()
 
+    from alembic.script import ScriptDirectory
+
+    expected_head = ScriptDirectory.from_config(cfg).get_current_head()
+
     assert task_count >= 1
     assert agent_model == "deepseek/deepseek-chat"  # 历史模型快照不被迁移改写
-    assert revision == "m1_b1_agent_run_employee_id"
+    assert revision == expected_head
     assert "employee_id" in _columns(legacy_url, "agent_run")
 
     # 与空库升级结果对比：五表列集合必须一致
