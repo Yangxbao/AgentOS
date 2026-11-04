@@ -1114,6 +1114,102 @@ GET  /api/tasks（真实库）                            → 4 条任务（M0-V
 
 ---
 
+## 19. B1 补充验收 + B2 执行报告（2026-11-05）
+
+> 状态：**B1 有条件通过；B2 已完成；B3 具备启动条件（待所有者确认）**
+> 提交：B1 补充 `381145f`｜B2 `fe66315`｜本轮文档提交见文末附录
+
+### 19.1 B1 补充验收结果
+
+| 检查项 | 方法 | 结果 |
+|---|---|---|
+| 包安装与导入 | `pip install -e .` 后从 `/tmp` 导入 `apps.api.main` | ✅ 成功；默认库路径已改为仓库绝对路径（`sqlite:///E:/AgentOS/data/agentos.db`），从其他目录启动不再静默建空库 |
+| 启动行为 | `scripts/run_api.py` 默认 127.0.0.1 | ✅ 正常启动；`ensure_schema` 改为"仅空库 create_all"，已有库必须迁移，避免结构漂移 |
+| 统一错误结构 | 未知路由 `/api/not-exists` | ✅ 404 + `error.code=NOT_FOUND` + 非空 `request_id`，响应头与 body 一致 |
+| request_id | 自定义 `X-Request-ID` 回显；防护拒绝响应 | ✅ 回显 `trace-abc-123`；Guard 403/400 的 `request_id` 由 `-` 修复为真实 ID |
+| 分页边界 | 探针应用 + 真实端点 | ✅ `page=2&page_size=200` 可用（offset=200）；`page_size=201` → 422 `VALIDATION_ERROR`；`page=0` → 422 |
+| CORS 预检 | OPTIONS + ACRM/ACRH | ✅ 200，`access-control-allow-origin` 正确，允许 `x-agentos-client` |
+| Referer 回退 | 无 Origin、带 Referer | ✅ 放行到路由层（405） |
+| 可选本地令牌 | 设置 `AGENTOS_LOCAL_TOKEN` | ✅ 缺令牌 401 `INVALID_TOKEN`；错误令牌 401；正确令牌放行 |
+| 备份脚本 | 真实执行 + 副本读取 | ✅ `data/backups/agentos_20261105_023021/`，manifest 记录 commit/大小；副本 4 条任务、revision 正确；源库未改动 |
+| Git 状态 | B1 后、B2 前 | ✅ 工作区干净；B2 未混入 B1 提交 |
+| 全量回归 | pytest | ✅ 23 passed（M0 7 + B1 7 + 补充 9） |
+
+**B1 风险分级**
+| 级别 | 问题 | 处理 |
+|---|---|---|
+| P0 | 无 | — |
+| P1（已修复） | 默认 DB 路径随启动目录漂移，可能悄悄建空库 | 已改绝对路径并复验 |
+| P1（已修复） | 启动 `create_all` 可能掩盖缺失迁移 | 改为仅空库引导，已有库强制迁移 |
+| P1（已修复） | 防护拒绝响应 `request_id` 为 `-` | 已注入真实 ID |
+| P1（保留，已记录） | 本地防护实现为中间件而非 router 依赖（与 §11.8 措辞不同） | 能力等价，M5 替换为鉴权中间件 |
+| P2 | 文档 §8.0 的 zod 版本与实际不一致 | 已在 §8.0 标注 4.6.7 及原因 |
+
+**结论：B1 有条件通过，无阻断项。**
+
+### 19.2 B2 实际完成内容
+
+- **数据模型**：`company` / `department`（parent_id 自引用、depth、唯一名）/ `position`（`can_review`、`review_capability_tags`、`is_managerial`、默认权限）
+- **迁移**：`m1_b2_org`，真实库已 `upgrade head`
+- **领域服务**（`packages/organization/`）：
+  - 公司：创建/列表/详情/更新/归档；归档后禁止组织变更
+  - 部门：创建（depth 自动计算）、更新/移动（成环检测、子树深度重算）、删除（子部门/岗位保护）、平铺列表
+  - 岗位：CRUD、同公司部门校验、`can_review` 与审查标签
+  - 组织树：一次查询 + 内存组树，含未归属岗位
+  - 公共：404 语义、乐观锁 `CONFLICT_STALE`、名称唯一、UTC 序列化
+- **API**：API-01..16 全部实现（公司 5 / 部门 6 / 岗位 5），统一 `/api/v1`、分页包络、错误包络
+- **前端**：`/org` React Flow 组织图（部门节点 + 岗位摘要 + 空态）；`/settings/organization` 公司/部门/岗位 CRUD；顶部健康状态走统一客户端
+
+### 19.3 新增与修改文件
+
+**新增**：`migrations/versions/0003_m1_b2_org.py`、`packages/shared/errors.py`、`packages/organization/{__init__,common,companies,departments,positions,tree}.py`、`apps/api/schemas/{__init__,org}.py`、`apps/api/routers/{companies,departments,positions}.py`、`apps/web/src/api/org.ts`、`apps/web/src/pages/{OrgPage,OrganizationSettings}.tsx`、`tests/test_org_api.py`、`tests/test_api_contract.py`、`tests/test_backup.py`
+**修改**：`packages/persistence/models.py`（3 张新表）、`apps/api/main.py`（挂载 v1 路由）、`apps/api/errors.py`（DomainError）、`packages/persistence/db.py`（绝对路径/ensure_schema）、`apps/api/security/local_guard.py`（request_id）、`tests/conftest.py`（write_client/seeded_company）、`apps/web/src/App.tsx`、`CHANGELOG.md`、`README.md`、`.github/workflows/ci.yml`
+
+### 19.4 数据库迁移情况
+
+| 库 | 操作 | 结果 |
+|---|---|---|
+| 真实 `data/agentos.db` | `alembic upgrade head`（m1_b1 → m1_b2_org） | 新增 company/department/position；`task` 仍 4 条、`company` 0 条；历史数据未动 |
+| 临时冒烟库 | 服务启动建库 → 建公司/部门/岗位 → org-tree | 全链路 201/200 正确，验证后临时库已删除（未用 `rm` 命令，使用 Python `unlink`） |
+| 自动化迁移测试 | 空库 + M0 旧库 | ✅ 断言改为动态读取 Alembic head，B2 新增 revision 后仍通过 |
+
+### 19.5 实际测试命令与结果
+
+```
+pytest tests/ -q                     → 38 passed in 4.92s
+ruff check apps packages scripts tests migrations → All checks passed!
+cd apps/web && npm run build         → tsc -b && vite build 通过，92 modules，410.10 kB JS
+python scripts/backup_db.py          → 备份成功，副本可读（4 条任务 / m1_b1 revision）
+真实服务冒烟（临时库）                 → 公司 201 → 部门 201(depth=0) → 岗位 201(can_review=true) → org-tree 正确
+```
+
+测试构成：M0 7 + B1 7 + B1 补充 9 + B2 15 = **38**。
+
+### 19.6 未完成项目与原因
+
+| 项 | 原因 |
+|---|---|
+| 浏览器端可视化验收（30 节点渲染、拖拽） | 未安装 Playwright（需授权）；本轮只验证构建与接口，**未做真实浏览器渲染验证** |
+| 部门拖拽移动 UI | B2 后端已提供 `/move`，前端本轮用"上级部门下拉"创建，未做拖拽交互（计划 B5 组织图编辑） |
+| 员工-部门人数统计 | 员工表 B3 才建，`employee_count` 暂为 0（占位，未伪造数据） |
+| 岗位删除引用检查 | `employee_position` B3 才建，当前允许删除岗位 |
+
+### 19.7 Git 状态
+
+- `381145f` test(b1): 补充验收 + 3 个修复
+- `fe66315` feat(b2): 组织域 + 16 API + 前端
+- 本轮文档提交：见附录（HEAD 会在此文档提交后更新）
+- 工作区：提交前干净；未推送 GitHub
+
+### 19.8 B3 是否具备启动条件
+
+**具备，但需注意三点**：
+1. B2 的 `can_review` / `depth` / 组织树接口已为 B3 的员工归属与 B5 的审查人推导提供数据基础
+2. B3 需要新增 `usage_record.employee_id` 与 employee/employee_position/model_connection/model_switch_log 四表，迁移顺序已定
+3. 未验证项（浏览器渲染）应在 B3 前端联调时一并补做，不阻塞迁移与后端开发
+
+---
+
 ## 附录：M1 执行记录（由后续执行者追加，勿删）
 
 | 批次 | 日期 | 结果 | 证据 |
@@ -1121,3 +1217,5 @@ GET  /api/tasks（真实库）                            → 4 条任务（M0-V
 | — | 2026-11-05 | v1.1 计划修订完成 | 本文件 §17 |
 | — | 2026-11-05 | v1.2 终审修订（审查人双池 + 测试计数），GPT 审查通过 | 本文件 §17 |
 | B1 | 2026-11-05 | **完成**：14/14 测试、ruff 全绿、前端构建通过；真实 M0 库 4 条任务全保留；5 项安全实测通过 | 代码 `83adedb`；报告 §18 |
+| B1 补充 | 2026-11-05 | 有条件通过：23/23 测试；修复默认库路径、启动建表策略、审计 ID；9 个补充用例 | `381145f`；报告 §19.1 |
+| B2 | 2026-11-05 | **完成**：组织域 3 表 + 16 API + 前端页面；38/38 测试、ruff、构建全绿；真实库迁移且历史数据不变 | `fe66315`；报告 §19.2-19.7 |
