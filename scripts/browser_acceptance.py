@@ -1,7 +1,8 @@
 """M3-0 浏览器验收：用本机已安装的 Microsoft Edge（headless + CDP）真实渲染并点击。
 
 不安装 Playwright / 任何新依赖；只用标准库 + 已安装的 websockets。
-覆盖：任务列表渲染、浏览器创建任务、执行、审批通过、监控、员工页。
+覆盖：任务列表、表单创建、单 Agent 执行、审批、多 Agent、暂停/恢复、模型连接、
+员工详情、组织设置、监控、组织图、未捕获 JS 异常。
 
 用法：
     python scripts/browser_acceptance.py
@@ -80,25 +81,49 @@ def seed() -> dict:
         "name": "Mock 连接", "provider": "deepseek",
         "model": "deepseek/deepseek-chat", "api_key_ref": "env:BROWSER_TEST_KEY",
     })
-    position = api("POST", f"/api/v1/companies/{company['id']}/positions", {
-        "name": "开发", "can_review": True,
-    })
-    employee = api("POST", f"/api/v1/companies/{company['id']}/employees", {
-        "name": "开发乙", "title": "开发工程师", "primary_model_id": connection["id"],
-        "positions": [{"position_id": position["id"], "is_primary": True}],
-    })
+    def position(name: str, **extra) -> dict:
+        return api("POST", f"/api/v1/companies/{company['id']}/positions", {"name": name, **extra})
+
+    def employee(name: str, title: str, position_id: str) -> dict:
+        return api("POST", f"/api/v1/companies/{company['id']}/employees", {
+            "name": name, "title": title, "primary_model_id": connection["id"],
+            "positions": [{"position_id": position_id, "is_primary": True}],
+        })
+
+    manager = employee("经理甲", "负责人", position("负责人", is_managerial=True, can_review=True)["id"])
+    dev = employee("开发乙", "开发工程师", position("开发")["id"])
+    qa = employee("测试丙", "测试工程师", position("测试", can_review=True)["id"])
     draft = api("POST", f"/api/v1/companies/{company['id']}/tasks", {
         "title": "浏览器验收-待执行", "objective": "点击执行后完成",
-        "assignee_employee_id": employee["id"], "execution_mode": "mock",
+        "assignee_employee_id": dev["id"], "execution_mode": "mock",
     })
     approval = api("POST", f"/api/v1/companies/{company['id']}/tasks", {
         "title": "浏览器验收-待审批", "objective": "需要人工审批",
-        "assignee_employee_id": employee["id"], "execution_mode": "mock",
+        "assignee_employee_id": dev["id"], "execution_mode": "mock",
         "approval_required": True,
     })
+    multi = api("POST", f"/api/v1/companies/{company['id']}/tasks", {
+        "title": "浏览器验收-多Agent", "objective": "三步协作",
+        "assignee_employee_id": manager["id"], "execution_mode": "mock",
+    })
+    api("PUT", f"/api/v1/tasks/{multi['id']}/plan", {"steps": [
+        {"id": "s1", "employee_id": dev["id"], "instruction": "第一步"},
+        {"id": "s2", "employee_id": qa["id"], "instruction": "第二步", "depends_on": ["s1"]},
+        {"id": "s3", "employee_id": manager["id"], "instruction": "第三步", "depends_on": ["s2"]},
+    ]})
+    slow = api("POST", f"/api/v1/companies/{company['id']}/tasks", {
+        "title": "浏览器验收-暂停恢复", "objective": "慢任务",
+        "assignee_employee_id": dev["id"], "execution_mode": "mock",
+    })
+    api("PUT", f"/api/v1/tasks/{slow['id']}/plan", {"steps": [
+        {"id": "s1", "employee_id": dev["id"], "instruction": "[slow:1200] 一"},
+        {"id": "s2", "employee_id": qa["id"], "instruction": "[slow:1200] 二", "depends_on": ["s1"]},
+        {"id": "s3", "employee_id": manager["id"], "instruction": "[slow:1200] 三", "depends_on": ["s2"]},
+    ]})
     return {
-        "company": company, "employee": employee,
-        "draft": draft, "approval": approval,
+        "company": company, "connection": connection,
+        "manager": manager, "employee": dev, "qa": qa,
+        "draft": draft, "approval": approval, "multi": multi, "slow": slow,
     }
 
 
@@ -262,22 +287,73 @@ async def run_checks(cdp: CDP, ctx: dict) -> None:
     check("B6 浏览器批准并完成", "已完成" in await cdp.text())
     await cdp.screenshot("05_approval_approved")
 
-    # 5. 监控页
+    # 5. 多 Agent 协作（三步计划，真实点击执行）
+    await cdp.goto(f"{WEB}/tasks/{ctx['multi']['id']}")
+    await cdp.wait_text("执行计划")
+    await cdp.click("执行")
+    await cdp.wait_text("已完成", timeout=40)
+    multi_text = await cdp.text()
+    check("B7 多 Agent 浏览器执行与交接",
+          "子任务" in multi_text and "agent.handoff" in multi_text,
+          multi_text[:200])
+    await cdp.screenshot("06_multi_agent")
+
+    # 6. 暂停 / 恢复（慢步骤，留出暂停窗口）
+    await cdp.goto(f"{WEB}/tasks/{ctx['slow']['id']}")
+    await cdp.wait_text("执行计划")
+    await cdp.click("执行")
+    await cdp.wait(
+        "[...document.querySelectorAll('button')]"
+        ".some(b => b.textContent.trim() === '暂停' && !b.disabled)",
+        20, "暂停按钮可用",
+    )
+    await cdp.click("暂停")
+    await cdp.wait_text("已暂停", timeout=30)
+    check("B8 浏览器暂停任务", "已暂停" in await cdp.text())
+    await cdp.screenshot("07_paused")
+    await cdp.click("恢复")
+    await cdp.wait_text("已完成", timeout=40)
+    check("B9 浏览器恢复并完成", "已完成" in await cdp.text())
+    await cdp.screenshot("08_resumed")
+
+    # 7. 模型连接页
+    await cdp.goto(f"{WEB}/settings/models")
+    await cdp.wait_text("Mock 连接")
+    models_text = await cdp.text()
+    check("B10 模型连接页渲染", "env:BROWSER_TEST_KEY" in models_text and "凭据可用" in models_text)
+    await cdp.screenshot("09_models")
+
+    # 8. 员工详情（权限 + 提示词）
+    await cdp.goto(f"{WEB}/employees/{ctx['employee']['id']}")
+    await cdp.wait_text("有效权限")
+    check("B11 员工详情权限与提示词区块", "提示词版本" in await cdp.text())
+    await cdp.screenshot("10_employee_detail")
+
+    # 9. 组织设置：浏览器创建部门
+    await cdp.goto(f"{WEB}/settings/organization")
+    await cdp.wait_text("添加部门")
+    await cdp.set_placeholder("部门名称", "浏览器验收部门")
+    await cdp.click("添加部门")
+    await cdp.wait_text("浏览器验收部门", timeout=20)
+    check("B12 组织设置创建部门", "浏览器验收部门" in await cdp.text())
+    await cdp.screenshot("11_org_settings")
+
+    # 10. 监控页
     await cdp.goto(f"{WEB}/monitor")
     await cdp.wait_text("今日成本")
     monitor_text = await cdp.text()
-    check("B7 监控页显示成本与状态",
+    check("B13 监控页显示成本与状态",
           "任务总数" in monitor_text and "今日成本" in monitor_text
           and "最近 Agent 执行" in monitor_text)
-    await cdp.screenshot("06_monitor")
+    await cdp.screenshot("12_monitor")
 
-    # 6. 员工页
+    # 11. 员工页
     await cdp.goto(f"{WEB}/employees")
     await cdp.wait_text("开发乙")
-    check("B8 员工页渲染", "开发乙" in await cdp.text())
-    await cdp.screenshot("07_employees")
+    check("B14 员工页渲染", "开发乙" in await cdp.text())
+    await cdp.screenshot("13_employees")
 
-    # 7. 组织页：必须检查画布节点，不能只看下拉框文字
+    # 12. 组织图：公司 + 部门 + 员工三个节点
     await cdp.goto(f"{WEB}/org")
     await cdp.wait(
         "[...document.querySelectorAll('.react-flow__node')]"
@@ -285,8 +361,11 @@ async def run_checks(cdp: CDP, ctx: dict) -> None:
         20, "组织图出现公司节点",
     )
     node_count = await cdp.eval("document.querySelectorAll('.react-flow__node').length")
-    check("B9 组织图渲染公司节点与员工节点", int(node_count or 0) >= 2, f"节点数 {node_count}")
-    await cdp.screenshot("08_org")
+    org_text = await cdp.text()
+    check("B15 组织图渲染公司/部门/员工",
+          int(node_count or 0) >= 3 and "浏览器验收部门" in org_text,
+          f"节点数 {node_count}")
+    await cdp.screenshot("14_org")
 
 
 def find_edge() -> Path:
@@ -352,9 +431,9 @@ def main() -> int:
         target = new_target()
         cdp = asyncio.run(_drive(target["webSocketDebuggerUrl"], ctx))
         if cdp.exceptions:
-            check("B10 无未捕获 JS 异常", False, "; ".join(cdp.exceptions[:5]))
+            check("B16 无未捕获 JS 异常", False, "; ".join(cdp.exceptions[:5]))
         else:
-            check("B10 无未捕获 JS 异常", True)
+            check("B16 无未捕获 JS 异常", True)
     finally:
         for proc in (edge_proc, web_proc, api_proc):
             if proc is not None:
@@ -367,6 +446,20 @@ def main() -> int:
         print(f"  - {name}")
     for name in FAILED:
         print(f"  ! {name}")
+
+    report = ROOT / "docs" / "testing" / "m3_browser_acceptance.txt"
+    lines = [
+        "AgentOS M3-0 浏览器验收（Microsoft Edge headless + CDP，未安装新工具）",
+        f"时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "覆盖：任务列表/表单创建/单Agent执行/审批/多Agent/暂停恢复/模型连接/员工详情/组织设置/监控/组织图",
+        f"结果：{len(PASSED)} 项通过，{len(FAILED)} 项失败",
+        "",
+    ]
+    lines += [f"[PASS] {name}" for name in PASSED]
+    lines += [f"[FAIL] {name}" for name in FAILED]
+    lines += ["", "截图：docs/testing/m3_browser/"]
+    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"证据已写入：{report}")
     return 0 if not FAILED else 1
 
 

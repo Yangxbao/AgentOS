@@ -1,0 +1,23 @@
+AgentOS M3-0 浏览器验收（Microsoft Edge headless + CDP，未安装新工具）
+时间：2026-11-05 20:54:23
+覆盖：任务列表/表单创建/单Agent执行/审批/多Agent/暂停恢复/模型连接/员工详情/组织设置/监控/组织图
+结果：16 项通过，0 项失败
+
+[PASS] B1 任务列表真实渲染
+[PASS] B2 浏览器表单创建任务
+[PASS] B3 任务详情页渲染
+[PASS] B4 浏览器点击执行并完成
+[PASS] B5 执行后停在待审批
+[PASS] B6 浏览器批准并完成
+[PASS] B7 多 Agent 浏览器执行与交接
+[PASS] B8 浏览器暂停任务
+[PASS] B9 浏览器恢复并完成
+[PASS] B10 模型连接页渲染
+[PASS] B11 员工详情权限与提示词区块
+[PASS] B12 组织设置创建部门
+[PASS] B13 监控页显示成本与状态
+[PASS] B14 员工页渲染
+[PASS] B15 组织图渲染公司/部门/员工
+[PASS] B16 无未捕获 JS 异常
+
+截图：docs/testing/m3_browser/
