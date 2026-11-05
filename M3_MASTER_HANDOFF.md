@@ -1,9 +1,9 @@
 # AgentOS M3 交接与进度（Master Handoff）
 
-> 版本：v1.0｜日期：2026-11-05｜状态：**M3-0 完成，M3 规划完成，尚未开始 M3-A 编码**
+> 版本：**v1.1**｜日期：2026-11-05｜状态：**M3-A 工具执行层已完成并通过验收；M3-E/B/C/D/F 未开始**
 > 设计基线：`M3_MASTER_PLAN.md`（架构/权限/数据/API/阶段验收）。
-> 本文记录真实基线、浏览器验收证据、阶段进度、风险与下一步。
-> 所有数字来自本机真实执行；原始证据见 `docs/testing/m3_browser_acceptance.txt` 与 `docs/testing/m3_browser/`。
+> 本文是 M3 唯一进度记录：实际完成什么、证据在哪、还有什么没做。
+> 所有数字均来自本机真实执行；证据见 `docs/testing/m3a_final_regression.txt`、`docs/testing/m3_browser_acceptance.txt`、`docs/testing/m3_browser/`。
 
 ---
 
@@ -11,200 +11,305 @@
 
 | 项 | 结果 |
 |---|---|
-| M2 基线（复核） | 129 passed；ruff 全绿；前端构建通过；真实库 18 表、revision `m2_task_center`、4 条历史任务未动 |
-| M3-0 浏览器验收 | **16/16 通过**（Edge headless + CDP，未安装 Playwright） |
-| M3-0 发现缺陷 | **4 个真实缺陷 + 2 个体验问题，已全部修复并复验** |
-| M3 规划 | `M3_MASTER_PLAN.md` v1.0 完成（10 个设计域 + A–F 验收） |
-| M3 功能代码 | **0 行**（按任务书“先规划，不直接大规模开发”） |
-| 未验证项 | 真实 GitHub 网络、Shell、多 worker、记忆检索（均未开始） |
+| 代码基线 | 代码提交 `1b0198d`（M3-A）；上一阶段 `4733bdd`（M3 规划 + M3-0） |
+| 数据库 | 真实库 21 表，revision **`m3_a_tools`**；`task/task_run/agent_run/usage_record` 各 4 条历史数据未动 |
+| 自动化测试 | **297 passed / 3 skipped**（M2 基线 129 + M3-A 新增 171） |
+| ruff | 全绿（apps/packages/scripts/tests/migrations） |
+| 前端 | `tsc -b && vite build` 通过（488.48 kB，gzip 149.43） |
+| 浏览器验收 | **29/29 通过**（M2 原 16 项 + M3-A 13 项），0 条未捕获 JS 异常 |
+| 真实模型调用 | **本轮 0 次**（全部 Mock，不产生费用）；M2 历史累计 4 次 / 353 tokens / ≈$0.00006285 |
+| 未完成 | M3-E 预算熔断、M3-B 递归、M3-C 记忆、M3-D 多 Worker、M3-F 业务验收 |
+
+### 1.1 M3-A 完成度（对照任务书 27 条完成标准）
+
+| # | 标准 | 状态 |
+|---|---|---|
+| 1 | 工作区与员工授权可用 | ✅ 创建/改名/归档/授权/撤权，撤权立即生效 |
+| 2 | 工具注册中心可用 | ✅ 7 个工具，含参数 Schema/风险/超时/输出上限 |
+| 3 | 五层权限判断可用 | ✅ 公司→岗位/员工→工具白名单→工作区，逐层拒绝码 |
+| 4 | `safe_resolve` 安全测试通过 | ✅ 60 个路径用例（含 junction 逃逸） |
+| 5 | 读文件/列目录/stat/创建文件 | ✅ |
+| 6 | 覆盖写入与删除审批 | ✅ `gate=tool_call` 挂起 → 批准/驳回 |
+| 7 | HTTP Stub 调用可用 | ✅ 本机 stub，未访问真实外网 |
+| 8 | SSRF 与重定向防护测试 | ✅ 回环/私网/链路本地/元数据/跨域重定向 |
+| 9 | Shell 完全没有执行路径 | ✅ AST 扫描 + 调用即 `SHELL_DISABLED` |
+| 10 | `tool_call` 与 `audit_log` 完整 | ✅ 成功/失败/拒绝/超时/挂起都落库 |
+| 11 | 模型工具调用循环可用 | ✅ Mock 确定性工具调用 + 真实 LiteLLM `tools` 参数适配 |
+| 12 | 工具循环次数上限生效 | ✅ 默认 8 次，`TOOL_LOOP_EXCEEDED` |
+| 13 | 工具审批可挂起与恢复 | ✅ 保存 messages/pending/call_index |
+| 14 | 恢复不重复调用模型 | ✅ 复用同一 `tool_call`，批准后从该调用继续 |
+| 15 | 后端 API 全部实现 | ✅ M3-01..10（14 个 route-method 对） |
+| 16 | 前端工作区管理页 | ✅ |
+| 17 | 前端工具策略页 | ✅ |
+| 18 | 前端任务工具调用面板 | ✅ |
+| 19 | 浏览器真实验收完成 | ✅ 29/29 |
+| 20 | 全量 pytest 通过 | ✅ 297 |
+| 21 | Ruff 通过 | ✅ |
+| 22 | 前端 TypeScript 检查 | ✅ `tsc -b` |
+| 23 | 前端构建通过 | ✅ |
+| 24 | M2 回归测试通过 | ✅ 129 个原用例全绿 |
+| 25 | 数据库历史数据完整 | ✅ 4 条任务/run/agent_run/usage 原样 |
+| 26 | Git 提交完整、工作区干净 | ✅ 见 §8 |
+| 27 | 本文档更新完整 | ✅ |
 
 ---
 
-## 2. M3-0：真实浏览器验收
+## 2. M3-A 交付明细
 
-### 2.1 方法（没有安装任何新工具）
+### 2.1 新增模块
 
-- 使用本机已安装的 **Microsoft Edge**（`msedge.exe`）以 `--headless=new` 启动，开启 `--remote-debugging-port`；
-- 通过 **CDP over WebSocket**（Python `websockets`，随 uvicorn 已装）执行真实点击、输入、选择；
-- 前端用 `scripts/serve_web.py` 提供 SPA 静态服务（仅 127.0.0.1:5173），后端 `scripts/run_api.py`（8000，临时库 + Mock 执行）；
-- 截图用 `Page.captureScreenshot`，逐张人工复核版面；
-- 脚本：`scripts/browser_acceptance.py`；结果：`docs/testing/m3_browser_acceptance.txt`；截图：`docs/testing/m3_browser/`。
+| 文件 | 作用 |
+|---|---|
+| `packages/tools/registry.py` | `ToolSpec` + 7 个工具注册；`model_schemas()` 只暴露已授权工具 |
+| `packages/tools/schema.py` | 极简 JSON Schema 校验（未知字段拒绝，与下发模型的 schema 同源） |
+| `packages/tools/paths.py` | **`safe_resolve`**：绝对路径/盘符/UNC/ADS/NUL/`..`/保留设备名/reparse point/大小写/敏感名单 |
+| `packages/tools/workspaces.py` | 工作区 CRUD、授权、撤权、默认根、系统目录拒绝 |
+| `packages/tools/fs.py` | `fs.list_dir` / `fs.read_file` / `fs.stat` / `fs.write_file` / `fs.delete_file` |
+| `packages/tools/http.py` | `http.request`：域名白名单 + DNS 后 IP 检查 + 逐跳重定向校验 + 大小/超时 |
+| `packages/tools/shell.py` | `shell.run` 只抛 `SHELL_DISABLED`，无任何执行代码 |
+| `packages/tools/policy.py` | 五层权限 `decide()`、`visible_tools()`、公司策略校验 |
+| `packages/tools/invoke.py` | 唯一入口：校验→授权→风险/审批→幂等→执行→截断→脱敏→落库→审计→事件 |
+| `packages/execution/tool_loop.py` | 多轮工具循环、审批挂起状态、恢复、次数上限 |
+| `apps/api/routers/tools.py` | M3-01..10 |
+| `apps/api/schemas/tools.py` | 请求/响应模型（策略 patch 拒绝未知字段） |
+| `apps/web/src/api/tools.ts` | 前端 API 客户端 |
+| `apps/web/src/pages/WorkspacesPage.tsx` | 工作区管理 |
+| `apps/web/src/pages/ToolPolicyPage.tsx` | 工具策略与工具目录 |
+| `tests/test_tool_paths.py` … `tests/test_tool_api.py` | 8 个测试文件，171 个用例 |
 
-### 2.2 覆盖范围与结果
+### 2.2 修改的关键位置
 
-| # | 检查 | 方式 | 结果 |
-|---|---|---|---|
-| B1 | 任务列表真实渲染 | 页面加载 + 文本断言 | PASS |
-| B2 | 浏览器表单创建任务 | 填标题/目标、选员工、点“创建” | PASS |
-| B3 | 任务详情页渲染 | 直接路由 + 区块断言 | PASS |
-| B4 | 点击“执行”并完成 | 真实点击 + 轮询状态徽标 | PASS |
-| B5 | 执行后停在待审批 | 审批卡片出现（不是标题误判） | PASS |
-| B6 | 输入意见并“批准” | 填输入框 + 点击 + 状态变已完成 | PASS |
-| B7 | 多 Agent 协作 | 三步计划执行，检查子任务与 `agent.handoff` | PASS |
-| B8 | 暂停任务 | 等“暂停”可用 → 点击 → 已暂停 | PASS |
-| B9 | 恢复并完成 | 点击“恢复” → 已完成 | PASS |
-| B10 | 模型连接页 | 连接名、`env:` 引用、凭据可用状态 | PASS |
-| B11 | 员工详情 | 有效权限、提示词版本区块 | PASS |
-| B12 | 组织设置建部门 | 填名称 → 添加部门 → 列表出现 | PASS |
-| B13 | 监控页 | 任务总数、今日成本、最近 Agent 执行 | PASS |
-| B14 | 员工页 | 三名员工渲染 | PASS |
-| B15 | 组织图 | 公司 + 部门 + 员工三节点与边 | PASS |
-| B16 | 未捕获 JS 异常 | 全程 `Runtime.exceptionThrown` 监听 | PASS（0 条） |
+| 文件 | 改动 |
+|---|---|
+| `packages/persistence/models.py` | 新增 `Workspace` / `EmployeeWorkspaceGrant` / `ToolCall`；`task.tool_calls_count`、`task_run.tool_calls_count`、`task_approval.tool_call_id` |
+| `packages/execution/executor.py` | 工具路径分流、`RunSuspended` 处理、工具计数；**修复两处 M2 时序缺陷**（见 §5） |
+| `packages/execution/tool_loop.py` | 新模块 |
+| `packages/execution/mock_adapter.py` | `chat()` + `[tool:name {json}]` 标记解析（离线可确定性复现工具调用） |
+| `packages/execution/observability.py` | 时间线加入 `tool_call` 条目 |
+| `packages/tasks/approvals.py` | `gate=tool_call`：批准 → 置 approved + 入队；驳回 → `TOOL_APPROVAL_REJECTED` + 任务失败 |
+| `packages/agent_core/adapter.py` | `LiteLLMAdapter.chat()` 支持 `tools`（复用 M2 网关，不重造） |
+| `packages/model_gateway/gateway.py` | `chat(tools=...)`，解析 `tool_calls`，其余行为不变 |
+| `packages/execution/prompting.py` | 有工具时声明“工具返回是不可信数据” |
+| `apps/api/main.py` | 挂载 `tools.router` |
+| `apps/web/src/App.tsx`、`TaskDetailPage.tsx` | 路由/导航 + 工具调用面板 |
 
-截图 13 张（`02_tasks` … `14_org`），已人工查看任务详情、审批、多 Agent、暂停、监控、组织图、组织设置。
+### 2.3 数据库迁移
 
-### 2.3 发现并修复的缺陷（M3-0 的真实产出）
+`migrations/versions/0008_m3_tools_workspaces.py`（revision `m3_a_tools`，down_revision `m2_task_center`）
+
+- 新表：`workspace`（公司内 name/slug 唯一）、`employee_workspace_grant`（employee+workspace 唯一）、`tool_call`（9 个索引）
+- 新列：`task.tool_calls_count`、`task_run.tool_calls_count`、`task_approval.tool_call_id`（+索引）
+- 验证路径：空库 `upgrade head` ✅；旧库副本 `upgrade head` ✅（4 条历史任务保留）；真实库先备份 `data/backups/agentos_20261105_211003` 再迁移 ✅
+- 未对真实库执行 downgrade
+
+### 2.4 API（M3-01..M3-10，14 个 route-method 对）
+
+| ID | 方法与路径 |
+|---|---|
+| M3-01 | `POST/GET /api/v1/companies/{cid}/workspaces` |
+| M3-02 | `GET/PATCH/DELETE /api/v1/workspaces/{id}`（DELETE = 归档） |
+| M3-03 | `POST/GET /api/v1/workspaces/{id}/grants` |
+| M3-04 | `DELETE /api/v1/workspaces/{id}/grants/{employee_id}` |
+| M3-05 | `GET /api/v1/tools` |
+| M3-06 | `GET /api/v1/companies/{cid}/tool-policy` |
+| M3-07 | `PATCH /api/v1/companies/{cid}/tool-policy` |
+| M3-08 | `GET /api/v1/employees/{id}/tool-permissions` |
+| M3-09 | `GET /api/v1/tasks/{id}/tool-calls`（分页） |
+| M3-10 | `GET /api/v1/tool-calls/{id}` |
+
+审计动作：`workspace.create/update/archive/grant/revoke`、`tool_policy.update`、`tool.call`、`tool.approval_requested`。
+事件类型：`tool.succeeded/failed/denied/timeout/awaiting_approval/approved/approval_rejected`、`run.awaiting_approval`。
+
+---
+
+## 3. 安全设计落地（与 PLAN 的对应关系）
+
+### 3.1 五层权限（`policy.decide`）
+
+```
+全局开关 AGENTOS_TOOL_EXECUTION（默认 off）
+ ∧ 公司策略 enabled / categories / allowed_tools
+ ∧ 员工 tools_allowed（精确工具名；空 = 不允许任何工具）
+ ∧ 岗位/员工权限层 tools（非空时进一步收窄）
+ ∧ 文件工具：工作区 grant（read/write）+ 工作区 mode
+ ∧ 风险：> 公司 max_risk_level 拒绝；> 自动执行上限转人工审批
+```
+
+**与 PLAN 的偏差（如实记录）**：
+1. PLAN 伪代码写 `tool ∈ effective_permissions.tools`。M1 的 `tools` 默认是 `[]`，若按“空即拒绝”会让工具永远不可用。实现为：**非空时作为额外收窄，空表示该层不再加限**；真正的“空 = 禁止”落在 `employee.tools_allowed`。
+2. `max_risk_level` 语义分层：**员工有效 `max_risk_level` = 自动执行上限**（超过转审批）；**公司 `tools.max_risk_level` = 绝对上限**（critical 直接拒绝）。这样“覆盖已有文件必须审批”才成立。
+
+### 3.2 路径与文件
+
+- 拒绝：绝对路径、盘符（含 `:`）、UNC、ADS、NUL/控制字符、`.`/`..`、空段、Windows 保留名、以空格/点结尾的段。
+- 逐级 `lstat` 检查 symlink/junction（`FILE_ATTRIBUTE_REPARSE_POINT`），再 `resolve()` + `normcase` + `commonpath` 判断包含关系。
+- 敏感名单（大小写不敏感）：`.env*`、`*.pem/*.key/*.pfx/*.p12`、`id_rsa*`、`.ssh`/`.aws`/`.gnupg`/`.azure`/`.kube`、`credentials*`、`NTUSER.DAT`、`SAM`、`SYSTEM`、`.git/config`、`.git-credentials`、`.npmrc`、`.pypirc`。
+- 读：≤256KB、UTF-8、`\x00` 视为二进制、内容命中密钥特征（`sk-`/`PRIVATE KEY`/`AKIA`/`ghp_`/`Bearer`）整体拒绝。
+- 写：`create` 用 `O_CREAT|O_EXCL`；`overwrite` 临时文件 + `fsync` + `os.replace`；`append` 限总大小；≤1MB；不自动建多级目录。
+- 删：只删单文件、拒绝目录/链接、返回 sha256 与字节数。
+
+**Windows TOCTOU 明确未消除**：校验与打开之间仍可能被本机进程替换；威胁模型是“本地单用户 + 工作区”，企业级需要 OS 沙箱（M4+）。
+
+### 3.3 网络
+
+- 域名白名单（`host` / `host:port` / `*.suffix`），URL 不允许 userinfo，只允许 http/https。
+- DNS 解析后逐 IP 检查：回环、私网、链路本地、保留、组播、未指定、`169.254.169.254`/`100.100.100.200` 全部拒绝。
+- 重定向逐跳重新校验（最多 5 跳），跳出白名单即拒绝。
+- 请求头只允许 `content-type/accept/user-agent/accept-language`；`Host/Cookie/Authorization/Proxy-Authorization/X-Forwarded-*` 直接拒绝。
+- 响应 ≤2MB、超时 1..60s、内联正文 ≤20k 字符、**显式禁用系统代理**。
+- 测试专用开关 `AGENTOS_TOOL_HTTP_ALLOW_LOOPBACK=1`（默认 0）：仅在“域名已白名单 + 显式开启”时允许回环，用于本地 stub 测试。
+
+### 3.4 Shell
+
+- 注册但 `enabled=False`；`decide` 对 `category=shell` 一律 `SHELL_DISABLED`，即使公司策略、白名单、员工授权全部“开启”。
+- 策略校验拒绝 `categories.shell=true` 与 `allowed_tools=["shell.run"]`。
+- `tests/test_shell_disabled.py` 用 **AST** 扫描 `packages/tools/*.py`：无 `subprocess` import、无 `os.system/Popen/exec*/spawn*` 调用。
+
+### 3.5 工具循环与审批恢复
+
+- 只把 `visible_tools(ctx)` 的 schema 发给模型。
+- `idempotency_key = sha256(task_id|step_id|call_index|tool|args_hash)`；同 key 已成功 → 直接复用结果，不产生第二次副作用。
+- 挂起：`checkpoint.tool_state = {step_id, messages, iteration, call_index, pending{tool_call_id, call_id, name, args}, approval_id}`；run/task → `awaiting_approval`。
+- 批准：`task_approval.tool_call_id` 指向同一条 `tool_call` → 置 `approved` → 入队新 run → 工具循环从 `pending` **直接执行该调用**，不重新调模型生成 tool_call。
+- 驳回：`tool_call.status=denied` + `error_code=TOOL_APPROVAL_REJECTED`，任务 `failed`（可重试），不进入返工回退。
+- 上限：`policy.max_tool_calls_per_step`（默认 8，1..50）→ `TOOL_LOOP_EXCEEDED`。
+
+---
+
+## 4. 测试与证据
+
+### 4.1 自动化测试（真实输出）
+
+```
+pytest tests/ -q                                  → 297 passed, 3 skipped in 78.34s
+ruff check apps packages scripts tests migrations  → All checks passed!
+cd apps/web && npm run build                      → ✓ built，488.48 kB（gzip 149.43）
+alembic current                                   → m3_a_tools (head)
+python scripts/reconcile_prompts.py               → orphan 0 / missing 0 / mismatch 0
+```
+
+新增 171 个用例的分布：
+
+| 文件 | 数量 | 覆盖 |
+|---|---|---|
+| `test_tool_paths.py` | 60 | 正常路径、`..`、绝对/盘符/UNC/ADS/NUL/保留名、敏感文件、大小写、junction 逃逸、symlink（2 个 skip：环境不允许创建符号链接） |
+| `test_tool_policy.py` | 23 | 全局/公司/类别/白名单/员工/工作区/只读/归档/风险/审批/Shell |
+| `test_tool_fs.py` | 22 | 列目录（深度/条数）、读（二进制/大文件/敏感/密钥内容）、stat、create/overwrite/append、删除审批、只读工作区 |
+| `test_tool_http.py` | 17 | 白名单、回环/私网/元数据、重定向、Host/Authorization、POST 策略、超时、超大响应、500 |
+| `test_tool_invoke.py` | 14 | 落库/审计/事件、拒绝、未注册、参数、幂等、脱敏、超时、截断 |
+| `test_tool_loop.py` | 13 | 无工具回归、单/多调用、未授权工具、Shell、未注册、8 次上限、审批批准/驳回、全局关闭、权限诊断 |
+| `test_shell_disabled.py` | 9 | 注册态/禁用、AST 无执行路径、策略拒绝、API 拒绝、目录标记 |
+| `test_tool_api.py` | 13 | 工作区 CRUD/默认根/禁用根/重名/归档、授权生命周期、跨公司、策略校验、调用列表/详情、审计 |
+
+3 个 skip 全部是“当前 Windows 环境不允许创建符号链接”，不是跳过安全断言：junction 逃逸已用 `mklink /J` 实测拦截。
+
+### 4.2 浏览器验收（Edge headless + CDP，未装 Playwright）
+
+`python scripts/browser_acceptance.py` → **29 项通过 / 0 失败**，13 张新截图。
+
+M3-A 的 13 项：
+
+| # | 检查 |
+|---|---|
+| M3-1 | 工作区页渲染（含根路径） |
+| M3-2 | 浏览器创建新工作区 |
+| M3-3 | 浏览器授权员工（读写） |
+| M3-4 | 浏览器撤销授权 |
+| M3-5 | 工具策略页与工具列表 |
+| M3-6 | Shell 永久禁用说明 |
+| M3-7 | 工具调用面板显示成功记录（DOM + API 双重断言） |
+| M3-8 | 时间线包含 `tool.succeeded` |
+| M3-9 | 刷新后工具记录仍存在 |
+| M3-10 | 被拒绝的工具调用同样展示 |
+| M3-11 | 工具调用进入待审批 |
+| M3-12 | 批准后恢复并完成 |
+| M3-13 | 驳回工具调用后任务失败 |
+
+截图：`docs/testing/m3_browser/m3_01_workspaces.png` … `m3_08_tool_rejected.png`；已人工检视工作区、工具策略、工具面板、待审批四个页面。
+
+---
+
+## 5. 本轮修复的真实缺陷
 
 | # | 缺陷 | 影响 | 修复 |
 |---|---|---|---|
-| 1 | 组织图从未创建 `company-root` 节点，员工却挂到该 id | 公司节点不显示、产生悬空边 | 创建公司根节点；部门/员工分层布局；fitView 重算 |
-| 2 | React Flow 控件在深色主题下渲染成一条白色空条 | 左下/右下出现白块，按钮不可见 | 用 xyflow CSS 变量覆盖 + 控件移到右下 |
-| 3 | 任务动作后时间线不刷新 | 执行完成后时间线仍只有 `task.created` | 动作成功后 invalidate `['timeline', id]` |
-| 4 | `/api/health` 版本号写死 `0.1.0-m1b1` | 顶栏长期显示旧版本 | 改为 `0.2.0-m2` |
-| 5 | 无计划任务显示“0 步”但执行记录有 s1 | 用户困惑 | 增加“未设计划：按单员工单步执行”提示 |
-| 6 | Agent 运行状态显示英文 `succeeded` | 与中文状态不一致 | 复用状态徽标 |
+| 1 | **SQLite WAL 读快照**：执行器外层 session 的只读事务不结束 | 其他会话刚提交的 `cancel_requested/pause_requested` 看不到（M2 时序侥幸通过） | 每波开始 `commit + expire_all + 重新读取` |
+| 2 | 步骤会话在模型调用期间持有写锁（`child.state=running` 未提交） | `POST /cancel` 被阻塞 0.75s，取消/暂停落后于执行 | 子任务置 running 后立即 commit |
+| 3 | 工具路径下 `handle` 未定义 | 工具执行完成后 `UnboundLocalError` → 任务失败 | `handle=None` + 安全取值 |
+| 4 | `ctx.tool_call_id` 跨调用复用 | 连续两次工具调用合并成一条 `tool_call` 记录 | 非审批恢复时重置；每次调用独立记录 |
+| 5 | 工具面板不刷新 | 执行完成后仍显示“0 次” | 固定 3s 轮询 + 动作后失效缓存 |
+| 6 | 工作区删除按钮选择器按员工 ID 匹配到第一张卡片 | 浏览器验收会撤错工作区授权 | testid 增加 workspace id（仅测试选择器） |
+| 7 | HTTP 500 被当成执行失败 | 无法把服务端错误作为工具结果返回 | 4xx/5xx 视为正常应答 |
 
-> 这 6 项都不是 `npm run build` 能发现的；只有真实渲染 + 点击 + 看截图才会暴露。
+---
 
-### 2.4 仍未覆盖的浏览器场景（如实列出）
+## 6. 未完成、已知限制与风险
 
-| 场景 | 状态 |
+### 6.1 M3-A 范围内未做（明确不在本轮）
+
+| 项 | 原因 |
 |---|---|
-| 通过 UI 新建公司 / 岗位 / 员工 | 未点；数据由 API 预置（部门创建已验证） |
-| 新建模型连接、点击“测试连接” | 未点（测试连接会触发一次真实外部调用，避免费用） |
-| 任务编辑（PATCH）、计划编辑器保存 | 未点；计划由 API 预置 |
-| 审批“驳回/要求修改 + 回退步骤” | 未在 UI 点；M2 API/E2E 已验证 |
-| 导入导出、派工预览、审计页 | 未点；M1 API 测试覆盖 |
-| 取消、重试 | 未点；API/E2E 覆盖 |
+| Token/费用预算熔断、连续拒绝自动暂停、kill switch | 属 **M3-E**；A 只留了 `max_tool_calls_per_step` 与风险分级接口 |
+| 工具输出注入的模型侧强约束 | 已做 `<untrusted_tool_result>` 包裹 + system 提示；但“模型一定不听注入”无法用工程保证 |
+| 递归子任务使用工具 | 属 M3-B；当前工具循环只作用于单层步骤 |
+| 多进程 worker 下工具幂等 | 单进程假设仍在；幂等键已按 task/step/call 设计，可平滑升级 |
+| 真实外部网络 | 未授权；HTTP 只测本机 stub |
+| 真实模型工具调用 | 本轮 0 次真实调用；`LiteLLMAdapter.chat(tools=...)` 已按 OpenAI 兼容格式实现，但**未用真实供应商验证** |
 
-结论：**主流程（建任务→执行→审批→多 Agent→暂停恢复→监控）在真实浏览器中可用**；管理类页面仅验证了渲染，未逐项点击。
+### 6.2 已知安全边界
 
----
+1. **TOCTOU 未消除**：`safe_resolve` 与真正打开之间仍可能被本机进程替换；本地单用户威胁模型下可接受。
+2. **符号链接测试受限**：本机无法创建 symlink（2 个 skip），junction 已实测。
+3. **本机恶意进程**可直连 SQLite；本地防护只挡浏览器跨站/跨源（M1 结论不变）。
+4. **HTTP 白名单是“域名级”**，同一域名下的不同路径不做区分；写方法还需公司策略 + 逐次审批。
+5. **审批人资格**：本地用户可直接决策；指定员工审批时校验 `reviewer != 执行人`，但不会强制 `can_review`（任务创建阶段已校验）。
 
-## 3. M2 能力与 M3 差距（摘要）
+### 6.3 风险分级
 
-详见 `M3_MASTER_PLAN.md` §1。核心差距：
-
-1. 员工只能“说”不能“做”：`tools_allowed` 只用于校验，从未真正执行工具；
-2. 没有工作区实体，文件权限无落点；
-3. 没有工具调用记录/审计/审批粒度；
-4. 拆分只有一层（`set_plan` 禁止子任务再设计划）；
-5. 没有记忆与检索；
-6. 单进程 worker（启动把所有 running 视为孤儿）；
-7. 模型工具调用未接入（`gateway.chat` 不收 tools）；
-8. 没有运行中预算/循环熔断；
-9. 没有真实业务闭环验收。
-
----
-
-## 4. M3 架构要点（完整设计见 PLAN）
-
-| 域 | 关键决策 |
+| 级别 | 项 |
 |---|---|
-| 工具层 | 内置工具注册表（fs/http，Shell 禁用占位）；唯一入口 `invoke` 负责校验/授权/超时/审计/脱敏 |
-| 权限 | 五层叠加：公司策略 ∩ 岗位默认 ∩ 员工覆盖（只收窄）∩ 工具白名单 ∩ 工作区授权 |
-| 文件安全 | 拒绝绝对路径/`..`/盘符/ADS；realpath 后必须在 root 内；symlink 检查；敏感文件名单；写用临时文件+原子改名 |
-| 网络 | 域名白名单 + 解析后 IP 检查（SSRF）+ 重定向逐跳校验 + 方法分级审批 |
-| Shell | **M3 不实现执行路径**，只注册禁用态；原因见 PLAN §6.7 |
-| 工具审批 | `task_approval.gate=tool_call`；挂起时保存消息与待执行调用；批准后不重复调用模型 |
-| 递归 | 子任务可再设计划，深度 ≤3、总步骤 ≤50；执行仍由根 run 驱动，检查点按路径（`s1/s2`）；`task_plan_revision` + replan |
-| 记忆 | `memory_item` + SQLite FTS5（零外部调用）；作用域 employee/project/company；注入内容包成不可信数据 |
-| Worker | 租约 + 心跳 + 原子认领 + 幂等键；过期租约回收；单进程假设修正 |
-| 监管 | 工具调用/Token/费用/时长上限；连续拒绝或超预算 → 暂停 + 原因；全局 kill switch |
+| P0 | 无 |
+| P1 | ①真实模型工具调用未验证（仅 Mock）；②无预算熔断（M3-E）；③审计与业务非同事务（工具调用自身已同事务，workspace/policy 为追加写） |
+| P2 | ①前端工作区改名用 `window.prompt`；②工具策略页不支持拖拽排序域名；③`fs.list_dir` 不返回隐藏文件过滤开关 |
 
 ---
 
-## 5. 阶段顺序与理由
+## 7. M3-0 浏览器验收（历史，已完成）
 
-**建议顺序：M3-A → M3-E → M3-B → M3-C → M3-D → M3-F**
+方法：本机 Edge `--headless=new` + `--remote-debugging-port`，CDP over WebSocket 执行真实点击；前端 `scripts/serve_web.py`（127.0.0.1:5173），后端 `scripts/run_api.py`（8000，临时库 + Mock）。
 
-| 顺序 | 阶段 | 理由 |
-|---|---|---|
-| 1 | M3-A 工具执行层 | 地基；没有它，后面都是空谈 |
-| 2 | M3-E 自主与监管 | 工具一接入就存在失控风险，闸门/预算必须紧跟 |
-| 3 | M3-B 递归与重规划 | 依赖稳定的工具循环与检查点 |
-| 4 | M3-C 记忆 | 独立，但能显著提升 F 的产出质量 |
-| 5 | M3-D 多 Worker | 运行形态升级，放在业务逻辑稳定后 |
-| 6 | M3-F 业务验收 | 综合验证，需要 A+B+C+E；D 非必需 |
-
-> 若产品优先要“更像员工”，可把 C 提前到 B 之前；D 可以最后做。
-
----
-
-## 6. 必须先做 / 可以暂缓
-
-### 必须先做（M3 的第一批）
-
-1. `workspace` + `employee_workspace_grant` + `safe_resolve`（没有安全边界，不能给文件权限）；
-2. `tool_call` + 审计 + 拒绝原因（先可观测，再谈能力）；
-3. `policy.decide`（五层授权 + 风险分级）；
-4. `fs.read_file` / `fs.list_dir` / `fs.write_file`（create 模式）；
-5. 工具审批（gate=tool_call）+ 挂起/恢复；
-6. 最小工具循环（模型选工具，最多 8 次）；
-7. 浏览器验收脚本纳入回归（新增工作区/工具审批页面检查）。
-
-### 可以暂缓
-
-| 功能 | 原因 |
-|---|---|
-| Shell 执行 | 任意代码执行；需 OS 级隔离 |
-| 递归 >3 层 | 成本/审查链爆炸；先验证两层 |
-| 向量 RAG | 需付费 embedding；FTS5 够用 |
-| 多 worker | 单进程先稳定；租约改造风险高 |
-| MCP 工具生态 | 供应链风险；M6 |
-| 自动安装/部署类工具 | 明确禁止 |
-| Git 操作工具 | 可用 HTTP 读 raw 文件替代；写操作风险高 |
-
----
-
-## 7. 风险（M3 特有）
-
-| 风险 | 等级 | 当前状态 |
-|---|---|---|
-| 文件路径逃逸（symlink/junction/TOCTOU） | P0 | 设计已覆盖，未实现；Windows 无法完全消除 TOCTOU，需文档声明 |
-| SSRF / 内网探测 | P0 | 设计已覆盖，未实现 |
-| 工具输出注入模型 | P0 | 设计为不可信数据包裹 + system 重申；未实现 |
-| 密钥经文件/HTTP 泄露 | P0 | 敏感文件名单 + 输出脱敏；未实现 |
-| Agent 循环/烧钱 | P1 | 设计上限 + 熔断；未实现 |
-| 多 worker 重复执行 | P1 | 租约 + 幂等键；未实现 |
-| 记忆污染 | P1 | 作用域 + 提升审批；未实现 |
-| SQLite 并发写 | P2 | 已有 WAL + timeout；多 worker 时需压测 |
+M2 的 16 项（B1..B16）全部保留并通过，其中发现并修复 4 个真实缺陷：组织图缺 `company-root` 节点、React Flow 控件白板、时间线不刷新、`/api/health` 版本陈旧。详见截图 `02_tasks.png` … `14_org.png`。
 
 ---
 
 ## 8. Git 与工作区
 
-```
-231fb8d test(m3-0): 浏览器验收扩展到 16 项并留存证据
-193f006 fix(m3-0): 真实浏览器验收发现并修复 4 个缺陷 + 验收工具
-957d794 docs(m2): 补记超时修复提交号
-```
-- 工作区：提交后干净；未推 GitHub
-- 未安装：Playwright / Docker / CrewAI / Codex CLI / 任何新依赖
-- 未产生：本轮 0 次真实模型调用（浏览器验收全部 Mock）
-- 真实库：18 表，revision `m2_task_center`，4 条历史任务未动
+| 提交 | 内容 |
+|---|---|
+| `4733bdd` | M3 规划 + M3-0 浏览器验收（上一轮） |
+| `1b0198d` | **M3-A 代码与测试**：迁移 `m3_a_tools`、`packages/tools/*`、`tool_loop`、执行器/审批接入、M3-01..10、三个前端页面、171 个测试 |
+| 本轮文档提交 | `M3_MASTER_HANDOFF.md`、`docs/testing/m3a_final_regression.txt`、13 张 M3-A 截图、README/CHANGELOG/ROADMAP |
+
+工作区在提交后应为干净；未推送 GitHub；未安装 Playwright/Docker/CrewAI/Codex CLI；未修改 Windows 安全设置。
 
 ---
 
-## 9. 下一步（M3-A 启动清单）
+## 9. 下一阶段：M3-E 启动清单
 
-1. 备份真实库 → 写迁移 `0008_m3_tools_memory_workers`（先只建 workspace/grant/tool_call + task_run 租约列，避免一次改太多）；
-2. `packages/tools/registry.py` + `policy.py` + `fs.py` + `invoke.py`；
-3. `safe_resolve` 单元测试（≥20 个恶意路径样例，先写测试再实现）；
-4. `gateway.chat` 支持 `tools/tool_calls`，`tool_loop` 只允许已授权 schema；
-5. 工具审批：checkpoint 保存 `pending_tool_call` + `messages`，批准后继续；
-6. API M3-01..10 + 前端工作区页 + 任务详情工具面板；
-7. 验收：PLAN §13 M3-A 的 10 条 + 新增浏览器检查（工作区授权、工具审批）。
+建议顺序仍是 **E → B → C → D → F**。M3-E 的最小闭环：
 
-> 本轮只完成规划与 M3-0，未写 M3 功能代码；等你确认顺序或调整优先级后开始 M3-A。
+1. `packages/execution/budget.py`：按 task 累计 token/cost，读取 `task.budget_usd` 与公司策略；超限 → `task.paused` + `TASK_BUDGET_EXCEEDED` 事件。
+2. 连续拒绝/失败计数：同一 task_run 内 `TOOL_DENIED` ≥3 → 暂停并提示检查授权。
+3. `AGENTOS_TOOL_EXECUTION=off` 时的失败语义统一（当前：不进入工具循环，正常完成；E 阶段改为“明确暂停并提示”）。
+4. 全局 kill switch：`POST /api/v1/system/tool-execution`（仅本地用户），审计留痕。
+5. 监控页增加“工具调用统计 / 拒绝原因 Top N / 预算使用率”。
+
+M3-E 之前不建议开 B（递归会放大成本与失控风险）。
 
 ---
 
-## 10. 需要你决定的事项（不阻塞规划）
+## 10. 需要确认的事项（不阻塞 M3-A）
 
-| # | 事项 | 建议 |
-|---|---|---|
-| 1 | M3-F 是否允许访问真实 GitHub（只读公开 API/raw 文件） | 建议允许一次，用固定 commit、只读、无 token；否则只用本地 stub，真实网络标记未验证 |
-| 2 | Shell 是否确认 M3 不做 | 建议确认暂缓，M4 与 OS 隔离一起做 |
-| 3 | 是否接受 FTS5 作为 M3 的 RAG（不接 embedding） | 建议接受；需要语义检索时再单独授权 |
-| 4 | 阶段顺序 A→E→B→C→D→F 是否认可 | 建议认可；若要先看“业务 Demo”，可把 F 提前到 B 之后 |
+1. **真实模型工具调用**是否允许用已有 DeepSeek Key 做一次最小验证（`max_tokens=64`，单次工具调用），预计 < $0.0001。
+2. **真实 GitHub 只读访问**是否授权（M3-F 需要；未授权则只用本地 stub 并标注未验证）。
+3. 工作区默认根目前是 `data/workspaces/<slug>`；是否需要在 UI 提供“打开目录”按钮（涉及本机文件管理器调用，属于新的系统交互，未擅自实现）。
