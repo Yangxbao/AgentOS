@@ -4,8 +4,8 @@
 
 不是多 AI 群聊工具。每个 AI 员工有自己的身份、岗位、能力、职责和权限；不同 AI 可以协作也可以互相质疑；开发员必须接受测试员的独立验证；**用户始终拥有最终控制权**。
 
-> 当前状态：**M2 主体完成 — 任务中心 / 执行引擎 / 多 Agent 协作 / 人工审批 / 执行监控**
-> 进度与证据：[M2_MASTER_HANDOFF.md](M2_MASTER_HANDOFF.md)｜设计基线：[M2_MASTER_PLAN.md](M2_MASTER_PLAN.md)
+> 当前状态：**M2 完成；M3 规划完成、M3-0 浏览器验收 16/16 通过（工具执行层尚未实现）**
+> M2：[交接](M2_MASTER_HANDOFF.md) · [设计](M2_MASTER_PLAN.md)｜M3：[规划](M3_MASTER_PLAN.md) · [交接](M3_MASTER_HANDOFF.md)
 
 ## 特性
 
@@ -27,8 +27,10 @@
 | 架构 | [系统架构](docs/architecture/SYSTEM_ARCHITECTURE.md) · [数据库](docs/architecture/DATABASE_DESIGN.md) · [Agent Adapter](docs/architecture/AGENT_ADAPTER.md) · [安全模型](docs/architecture/SECURITY_MODEL.md) |
 | M1 | [M1_PLAN_HANDOFF.md](M1_PLAN_HANDOFF.md)（组织/员工/模型/提示词/权限/派工/审计） |
 | M2 | [M2_MASTER_PLAN.md](M2_MASTER_PLAN.md)（架构/数据/API/状态机/时序）· [M2_MASTER_HANDOFF.md](M2_MASTER_HANDOFF.md)（进度/证据/风险） |
+| M3 | [M3_MASTER_PLAN.md](M3_MASTER_PLAN.md)（工具层/权限/文件安全/递归/记忆/Worker）· [M3_MASTER_HANDOFF.md](M3_MASTER_HANDOFF.md)（M3-0 验收/阶段顺序/风险） |
+| M3 | [M3_MASTER_PLAN.md](M3_MASTER_PLAN.md)（工具层/权限/文件安全/递归/记忆/Worker）· [M3_MASTER_HANDOFF.md](M3_MASTER_HANDOFF.md)（M3-0 验收/阶段顺序/风险） |
 | 开发 | [路线图](docs/development/ROADMAP.md) · [里程碑验收](docs/development/MILESTONE_ACCEPTANCE.md) · [ADR](docs/decisions/ADR_INDEX.md) |
-| 测试 | [M0](docs/testing/M0_TEST_REPORT.md) · [M1](docs/testing/m1_final_regression.txt) · [M2 回归](docs/testing/m2_final_regression.txt) · [M2 E2E](docs/testing/m2_e2e_mock.txt) |
+| 测试 | [M0](docs/testing/M0_TEST_REPORT.md) · [M1](docs/testing/m1_final_regression.txt) · [M2 回归](docs/testing/m2_final_regression.txt) · [M2 E2E](docs/testing/m2_e2e_mock.txt) · [M3-0 浏览器验收](docs/testing/m3_browser_acceptance.txt) |
 
 ## 快速开始
 
@@ -53,6 +55,12 @@ cd apps/web && npm run build
 # 端到端（默认全 Mock，不产生费用）
 python scripts/e2e_m2.py
 python scripts/e2e_m2.py --real   # 额外一次最小真实调用（需 .env 有 Key）
+
+# 真实浏览器验收（使用本机 Edge，不安装 Playwright）
+python scripts/browser_acceptance.py
+
+# 真实浏览器验收（使用本机 Edge，不安装 Playwright）
+python scripts/browser_acceptance.py
 
 # 备份 / 提示词对账
 python scripts/backup_db.py

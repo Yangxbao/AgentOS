@@ -24,10 +24,16 @@
 - ⏳ 未做：浏览器可视化验收（需授权 Playwright）、真实外部工具执行、多进程 worker、递归拆分
 - 设计/证据：[M2_MASTER_PLAN.md](../../M2_MASTER_PLAN.md) · [M2_MASTER_HANDOFF.md](../../M2_MASTER_HANDOFF.md)
 
-## M3 AI 监督系统
-- 独立 QA Agent、跨模型交叉审查、结构化审查报告（6 要素）
-- 自动打回/返工/返工上限、测试证据、最终验收
-- 成本与绩效中心（10 项指标按员工归因、预算护栏）
+## M3 工具化与自主执行（规划完成，待开发）
+- ✅ M3-0 浏览器验收 16/16（真实 Edge + CDP，发现并修复 6 个前端/版本缺陷）
+- ⏳ M3-A 工具执行层：工作区、工具注册/策略、FS/HTTP、工具审批、审计
+- ⏳ M3-E 自主与监管：调用/Token/费用上限、风险闸门、异常暂停
+- ⏳ M3-B 递归拆分与重规划（≤3 层、总步骤/预算上限）
+- ⏳ M3-C 长期记忆（SQLite FTS5，零外部调用）
+- ⏳ M3-D 多 Worker（租约/心跳/幂等/公平调度）
+- ⏳ M3-F 真实业务验收（GitHub 教程生成，默认本地 stub）
+- Shell 执行、向量 RAG、MCP 生态明确暂缓（原因见 M3_MASTER_PLAN §16）
+- 设计/交接：[M3_MASTER_PLAN.md](../../M3_MASTER_PLAN.md) · [M3_MASTER_HANDOFF.md](../../M3_MASTER_HANDOFF.md)
 
 ## M4 AI 会议室
 - 多 Agent 受控讨论（调度系统控制生命周期）、@成员、召集/主持人
