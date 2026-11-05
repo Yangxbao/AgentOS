@@ -1,12 +1,12 @@
 AgentOS M3-A 最终回归（真实执行，未编造）
-时间：2026-11-05 22:13:15 +0800
-Git HEAD：1b0198d
+时间：2026-11-05 23:15:51 +0800
+Git HEAD：337c299
+数据库 revision：m3_a_tools (head)
 
 ### 1) pytest tests/ -q
-...........................s............................................ [ 72%]
 ......................................................ss................ [ 96%]
 ............                                                             [100%]
-297 passed, 3 skipped in 81.59s (0:01:21)
+297 passed, 3 skipped in 84.46s (0:01:24)
 pytest_exit=0
 
 ### 2) ruff check apps packages scripts tests migrations
@@ -14,18 +14,14 @@ All checks passed!
 ruff_exit=0
 
 ### 3) npm run build
-computing gzip size...
 dist/index.html                   0.45 kB │ gzip:   0.29 kB
 dist/assets/index-CrIWbTJ6.css   34.26 kB │ gzip:   6.97 kB
 dist/assets/index-D-EclDIJ.js   488.48 kB │ gzip: 149.43 kB
 
-✓ built in 1.05s
+✓ built in 1.30s
 build_exit=0
 
-### 4) alembic current
-m3_a_tools (head)
-
-### 5) 真实库数据
+### 4) 真实库数据
 tables: 21
   task: 4
   task_run: 4
@@ -38,24 +34,14 @@ tables: 21
   task_approval: 0
 revision: m3_a_tools
 
-### 6) 提示词对账（只读）
+### 5) 提示词对账（只读）
 orphan_files: 0
 missing_files: 0
 hash_mismatch: 0
 reconcile_exit=0
 
-### 7) 浏览器验收（Edge headless + CDP，29 项）
+### 6) M2 端到端（Mock）
+PASS count: 13
+
+### 7) 浏览器验收
 结果：29 项通过，0 项失败
-[PASS] M3-1 工作区页渲染（含根路径）
-[PASS] M3-2 浏览器创建新工作区
-[PASS] M3-3 浏览器授权员工（读写）
-[PASS] M3-4 浏览器撤销授权
-[PASS] M3-5 工具策略页与工具列表
-[PASS] M3-6 Shell 永久禁用说明
-[PASS] M3-7 工具调用面板显示成功记录
-[PASS] M3-8 时间线包含工具事件
-[PASS] M3-9 刷新后工具记录仍存在
-[PASS] M3-10 被拒绝的工具调用同样展示
-[PASS] M3-11 工具调用进入待审批
-[PASS] M3-12 批准后恢复并完成
-[PASS] M3-13 驳回工具调用后任务失败
