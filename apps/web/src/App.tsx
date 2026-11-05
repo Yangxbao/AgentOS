@@ -9,7 +9,10 @@ import AssignmentPage from './pages/AssignmentPage'
 import AuditPage from './pages/AuditPage'
 import ImportExportPage from './pages/ImportExportPage'
 import ModelConnectionsPage from './pages/ModelConnectionsPage'
+import MonitorPage from './pages/MonitorPage'
 import OrgPage from './pages/OrgPage'
+import TaskDetailPage from './pages/TaskDetailPage'
+import TasksPage from './pages/TasksPage'
 
 function HealthBadge() {
   const health = useQuery({
@@ -51,6 +54,8 @@ function Shell() {
       <header className="flex items-center gap-4 border-b border-slate-800 px-4 py-3">
         <span className="font-semibold">AgentOS</span>
         <nav className="flex items-center gap-1">
+          <NavItem to="/tasks">任务中心</NavItem>
+          <NavItem to="/monitor">执行监控</NavItem>
           <NavItem to="/org">组织架构</NavItem>
           <NavItem to="/employees">AI 员工</NavItem>
           <NavItem to="/assignments">派工预览</NavItem>
@@ -66,7 +71,10 @@ function Shell() {
 
       <main className="min-h-0 flex-1 overflow-auto">
         <Routes>
-          <Route path="/" element={<Navigate to="/org" replace />} />
+          <Route path="/" element={<Navigate to="/tasks" replace />} />
+          <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/tasks/:id" element={<TaskDetailPage />} />
+          <Route path="/monitor" element={<MonitorPage />} />
           <Route path="/org" element={<OrgPage />} />
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/employees/:id" element={<EmployeeDetailPage />} />
