@@ -2,7 +2,8 @@
 
 > **给接手者**：读完这一份就能接手，不需要读其他文档。
 > 本文覆盖 **M0 → M3-A** 的完整现状：环境、代码、数据、权限、命令、坑、下一步。
-> 版本：2026-11-06（M3-E 完成）｜当前 HEAD 以 `git log -1` 为准｜数据库 revision：`m3_a_tools`（M3-E 无迁移）
+> 版本：2026-11-06（M3 批次全部完成：A/E/B/C/D/F）｜当前 HEAD 以 `git log -1` 为准｜数据库 revision：`m3b_memory_workers`
+> **M3 批次的完整交接/验收文档是 `M3_MASTER_HANDOFF.md`**（本篇保留项目级信息：环境/红线/坑清单）
 
 ---
 
@@ -452,15 +453,16 @@ REM 真实浏览器验收（Edge + CDP；会自己起 8000/5173，跑完写证�
 .venv\Scripts\python.exe scripts\browser_acceptance.py
 ```
 
-### 10.1 当前基线（2026-11-06 M3-E 实测）
+### 10.1 当前基线（2026-11-06 M3 批次完成实测）
 
 ```
-pytest tests/ -q                                  → 306 passed, 3 skipped
+pytest tests/ -q                                  → 332 passed, 3 skipped
 ruff check ...                                    → All checks passed!
-cd apps/web && npm run build                      → ✓ 491.66 kB (gzip 150.13 kB)
-alembic current                                   → m3_a_tools (head)
+cd apps/web && npm run build                      → ✓ 496.68 kB (gzip 150.95 kB)
+alembic current                                   → m3b_memory_workers (head)
 reconcile_prompts.py                              → orphan 0 / missing 0 / mismatch 0
 scripts/e2e_m2.py                                 → 13 项全过
+scripts/e2e_m3f.py                                → 16 项全过（GitHub 教程场景，本地 stub）
 scripts/browser_acceptance.py                     → 29 项全过（0 失败，0 JS 异常）
 ```
 
@@ -504,7 +506,11 @@ scripts/browser_acceptance.py                     → 29 项全过（0 失败，
 | M1 | 完成（P1 已清） | 组织/员工/模型解耦/提示词版本/三层权限/派工/审计；91 测试 |
 | M2 | 完成 | 任务中心/执行引擎/多 Agent/审批/监控；129 测试 |
 | **M3-A** | **完成** | 工具执行层；新增 171 测试，总 297；浏览器 29/29 |
-| **M3-E** | **完成** | 执行监管：预算/连续拒绝熔断、kill switch、监控统计；新增 9 测试，总 306 |
+| **M3-E** | **完成** | 执行监管：预算/连续拒绝熔断、kill switch、监控统计 |
+| **M3-B** | **完成** | 递归任务树/深度步数上限/replan/父子预算聚合 |
+| **M3-C** | **完成** | 长期记忆：FTS5/作用域隔离/记忆工具/注入防护/记忆中心 |
+| **M3-D** | **完成** | 多 Worker：租约/心跳/原子领取/故障恢复/公司并发上限 |
+| **M3-F** | **完成** | 端到端业务验收（GitHub 教程，本地 stub，16 项全过） |
 | M3-E | 未开始 | 预算熔断、连续拒绝暂停、kill switch |
 | M3-B | 未开始 | 递归拆分、重规划 |
 | M3-C | 未开始 | 长期记忆（计划用 SQLite FTS5，不接 embedding） |
