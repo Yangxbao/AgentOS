@@ -1,9 +1,9 @@
 # AgentOS M1 计划与交接文档（单一文档）
 
-> 版本：**v1.2（最终计划版，仅修订审查人双池规则与 B1 测试计数）**｜日期：2026-11-05｜状态：**计划审查通过，可启动 B1**
+> 版本：**v1.3（M1 执行完成 + P1 收尾清理）**｜日期：2026-11-05｜状态：**M1 主体完成，P1 已清理，可进入 M2**
 > 用途：这份文档自包含，可直接交给另一个 AI 或开发者执行 M1。不需要再读其他文档。
 > 文档约定：【已验证】= 有可复核证据（代码/实测）｜【设计】= 本文档提出的方案｜【已确认】= 所有者已拍板
-> 修订内容见文末 **§17 修订记录**。v1.2 只改两处：§10.5 审查人改为"正式池/降级池"双池模型（修正 T6 不可达与 T5 分类重叠），以及 B1 测试数量 6→7、B6 计划总数核算。
+> 修订内容见文末 **§17 修订记录**；执行证据见 **§18 B1**、**§19 B1 补充 + B2**、**§20 B3–B6**、**§21 P1 收尾**。v1.3 不改计划与架构，只记录收尾清理结果。
 
 ---
 
@@ -954,7 +954,17 @@ S-1 放宽权限 → 403 + 审计｜S-2 员工访问管理接口 → 接口不�
 
 ## 17. 修订记录
 
-### v1.2（2026-11-05，最终计划版，当前版本）
+### v1.3（2026-11-05，执行完成后的 P1 收尾，当前版本）
+**不改计划、不改架构、不新增迁移；只记录 §20 遗留 P1 的清理结果。**
+
+1. 审计事件由 3 类扩到 17 类（新增 14 类），detail 在领域层强制脱敏，`request_id` 透传，导入审计与业务同事务。
+2. 配置导入改为单事务 + 文件补偿；补偿失败保留孤儿供 `reconcile_prompts.py` 发现；补齐三个失败注入测试。
+3. 补齐部门 PATCH、权限覆盖组合、连接测试（Mock 上游）三组直接测试。
+4. 修复四个真实缺陷：提示词导入版本倒序、`requires_approval` 顺序误判扩权、上游错误回显密钥、写盘失败残留临时文件。
+5. 测试环境隔离：`AGENTOS_PROMPTS_ROOT`，避免污染真实 `data/prompts`。
+6. 执行证据与回归数字见 **§21**。
+
+### v1.2（2026-11-05，最终计划版）
 **仅处理两处问题，未重设计 M1、未编码。**
 
 1. **§10.5 审查人改为双池模型（修正 v1.1 的三处逻辑矛盾）**
@@ -1299,6 +1309,8 @@ python scripts/e2e_m1.py                          → 23 项检查全部通过�
 
 ### 20.9 尚未完成事项
 
+> **更新（v1.3）**：本节第 2、3、5 项已在 **§21 收尾**中修复关闭；第 1、4、6 项保留（P2 / 后续里程碑）。以下为 B6 当时的原始记录，保留以便追溯。
+
 1. **浏览器可视化验收**：未安装 Playwright，组织图/派工台仅通过构建与接口验证
 2. **审计覆盖不足**：只写了 `employee.permission_overrides.update/denied`、`assignment.preview` 三类；计划中的 12 类（公司/部门/岗位变更、模型切换、提示词发布、导入导出等）未全部接入（P1）
 3. **导入非严格单事务**：`create_revision` 每版本自行 commit，失败时可能留下部分导入数据（P1）
@@ -1307,6 +1319,8 @@ python scripts/e2e_m1.py                          → 23 项检查全部通过�
 6. MCP/A2A/CLI 执行仍未开始（M2/M6 范围）
 
 ### 20.10 风险分级
+
+> **更新（v1.3）**：下表 4 项 P1 的处置结果见 **§21.1**（3 项已修复，1 项转为 Mock 验证）。以下为 B6 当时的分级，保留以便追溯。
 
 | 级别 | 项 | 处理建议 |
 |---|---|---|
@@ -1334,6 +1348,111 @@ python scripts/e2e_m1.py                          → 23 项检查全部通过�
 
 ---
 
+## 21. M1 收尾：P1 清理（2026-11-05）
+
+> **结论：§20.10 的 4 项 P1 已清理 3 项并关闭，第 4 项（真实连接测试）按"不产生费用"约束改为 Mock 全路径验证 + 保留手工验证建议。M1 由"主体完成、有条件通过"转为"P1 已清理，可进入 M2"。**
+> 本轮**未新增数据库迁移**、**未改动 45 个端点的请求/响应契约**、**未重开任何架构决策**、**未删除真实数据**。
+
+### 21.1 P1 逐项状态
+
+| # | P1（§20.9/§20.10） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 审计只覆盖 3 类事件 | **已修复**：新增 14 类事件（合计 17 类） | §21.2；`tests/test_audit_events.py`（7 个用例） |
+| 2 | 配置导入非严格单事务 | **已修复**：显式事务 + 文件补偿 + 孤儿可对账 | §21.3；`tests/test_import_transaction.py`（4 个用例，含 3 个失败注入） |
+| 3 | 3 个 API 无直接测试 | **已修复**：部门 PATCH / 权限覆盖组合 / 连接测试 Mock | §21.4；`tests/test_api_gaps.py`（7 个用例） |
+| 4 | 连接测试端点无真实调用验证 | **未做真实付费调用**（遵守约束）。改为 Mock 覆盖成功/认证失败/超时/其他四路径，并修复错误信息回显风险 | §21.4；真实 Key 环境下建议手工跑一次 |
+
+### 21.2 核心审计事件（只增不改 + 强制脱敏）
+
+新增 14 类事件，落在对应路由（`apps/api/audit.py` 统一入口）：
+
+| 事件 | 触发 |
+|---|---|
+| `employee.create` / `employee.update` / `employee.enable` / `employee.disable` / `employee.delete` | 员工创建、改档案、启停、软删除 |
+| `employee.model_binding.update` | 主/备模型切换（记录 from/to 与原因） |
+| `model_connection.create` / `model_connection.update` / `model_connection.delete` | 连接创建、配置变更、启停、删除 |
+| `model_connection.test` | 连接测试成功（失败由错误包络返回，不写成功审计） |
+| `prompt.version.create` / `prompt.version.activate` | 提示词新建版本、切换激活 |
+| `config.export` / `config.import` | 公司配置导出、导入 |
+
+实现要点：
+
+- **只追加**：`audit_log` 无更新/删除路由；`test_audit_is_append_only_and_filterable` 断言 `DELETE/PATCH /audit/{id}` 均不可用。
+- **脱敏在领域层**（`packages.permissions.audit.sanitize_detail`），不依赖调用方自觉：
+  - 敏感键名（`api_key`/`token`/`secret`/`password`/`authorization`…）→ `***REDACTED***`；
+  - 任意字符串值命中 `sk-xxxxxxxx`、`Bearer xxxxxxxx` → 替换；
+  - `api_key_ref` 属于引用（`env:VAR`），保留以便审计，但**连接更新只记 `credential_ref_changed=true`，不记取值**。
+- **request_id**：由 `RequestIdMiddleware` 注入，随审计落库；`test_audit_request_id_is_propagated` 用 `X-Request-ID: audit-req-0001` 验证。
+- **事务边界**：普通事件在业务提交后追加（独立事务）；**导入事件在导入事务内写入**（`commit=False`），失败时与业务数据一起回滚，不会出现"导入失败但留下成功审计"。
+
+### 21.3 配置导入：整体事务 + 文件补偿
+
+改动点：
+
+1. `create_revision` / `activate_revision` 增加 `commit: bool = True`；导入传 `False`，只 `flush` 不提交。
+2. `import_company` 全程单事务：公司 → 部门 → 岗位 → 连接 → 员工 → 岗位关联 → 提示词文件+元数据 → 审计 → 一次 `commit`。
+3. 任一异常：`rollback()` → 按**本批次新建文件清单**补偿删除 → 原始异常继续抛出（不吞）。
+4. 补偿失败：`logger.warning` 记录并保留孤儿文件，**不对已有版本做任何删除**；`scripts/reconcile_prompts.py` 只读检查即可发现。
+5. 顺手修复的两个真实缺陷：
+   - **提示词版本倒序**：导出用 `list_revisions`（版本倒序），导入却按列表顺序重建，导致 v2 内容被存成 v1。现导出改升序、导入按 `version` 排序，并校验 `content_hash`（不符返回 `IMPORT_PROMPT_HASH_MISMATCH`）。
+   - **临时文件残留**：`os.replace` 失败时 `.tmp-*` 会留在磁盘；现写盘/改名失败也会清理临时文件。
+
+失败注入测试（真实执行，非跳过）：
+
+| 用例 | 注入点 | 断言 |
+|---|---|---|
+| 中途数据库失败 | 激活阶段抛 `RuntimeError` | 500 + 公司数不变 + 审计数不变 + 文件集合不变 |
+| 文件写入失败 | `_atomic_replace` 抛 `OSError` | 500 + 公司数不变 + 无 `.tmp-*` 残留 |
+| 文件补偿失败 | `_unlink_quietly` 返回 False | 500 + DB 回滚 + `reconcile()` 报 2 个孤儿 + 原文件仍在 |
+| 版本与哈希保真 | 无注入（回归） | v1/v2 内容、哈希、激活指针逐一对应 |
+
+### 21.4 补齐的 API 直接测试
+
+| 接口 | 覆盖 |
+|---|---|
+| `PATCH /api/v1/departments/{id}` | 纯改名（父子/层级不变）；空白名 422；同公司重名 409；陈旧 `expected_updated_at` 409；不存在 404；失败请求均未改库 |
+| `PUT /api/v1/employees/{id}/permission-overrides` | 未知键 422；风险等级/文件操作扩权 403；合法收窄 200；**多键混合失败不部分写入**；`requires_approval` 少列即扩权、原清单+新项才允许；拒绝事件全部留审计 |
+| `POST /api/v1/model-connections/{id}/test` | Mock 上游：成功 200（回写 `last_health_status=ok`）、认证失败 502 `UPSTREAM_AUTH_FAILED`、超时 504 `UPSTREAM_TIMEOUT`、其他 502 `UPSTREAM_ERROR`；响应不含密钥或 `sk-` 片段 |
+
+**未发起任何真实模型调用**：测试用 `_FakeAdapter` 替换 `LiteLLMAdapter`，只验证"凭据解析 → 调用 → 状态落库 → 错误分类 → 脱敏"链路。
+
+### 21.5 测试环境隔离（顺带修复）
+
+`PROMPTS_ROOT` 原为固定 `data/prompts`，导致每次跑测试都往真实目录写文件。真实库 `prompt_revision` 为 0，而目录里留下 36 个测试员工目录 → 对账脚本会报 36 个孤儿。
+
+- 新增 `AGENTOS_PROMPTS_ROOT` 覆盖（`prompt_root()`），并让 `file_path` 在根目录位于仓库外时存绝对路径（旧相对路径仍兼容）。
+- `tests/conftest.py` 增加 autouse 夹具：每个测试独立提示词根。
+- E2E 脚本改用 `data/prompts_e2e`，结束整目录清理。
+- 36 个历史测试目录**未删除**，已移动到 `data/backups/prompt_orphans_20261105_194225/`（可回滚）。
+
+### 21.6 回归结果（真实执行）
+
+| 命令 | 结果 |
+|---|---|
+| `pytest tests/ -q` | **91 passed**（M0 7 + B1 7 + B1补充 9 + B2 15 + B3 13 + B4 10 + B5 12 + 收尾 18） |
+| `ruff check apps packages scripts tests migrations` | `All checks passed!` |
+| `cd apps/web && npm run build` | 通过：102 modules，`dist/assets/index-*.js` 440.61 kB（gzip 138.83），1.52s |
+| `python scripts/e2e_m1.py` | **23 项检查全部通过**（3 个场景） |
+| `python scripts/reconcile_prompts.py` | `orphan_files: 0 / missing_files: 0 / hash_mismatch: 0`，退出码 0 |
+| `alembic current` | `m1_b5_assignment_audit (head)`（本轮无新迁移） |
+| 真实库核对 | 16 张表；`task` 4、`task_run` 4、`agent_run` 4、`usage_record` 4；`company/employee/prompt_revision/audit_log` 均 0；历史数据未被触碰 |
+
+### 21.7 仍未完成（P2，不阻塞 M2）
+
+1. 公司/部门/岗位变更未写审计（不在本轮清单；M2 组织变更频繁时建议补）。
+2. 浏览器可视化验收未做（未安装 Playwright，需授权）。
+3. 部门拖拽 UI 未做（后端 `POST /departments/{id}/move` 已具备）。
+4. 普通写接口的审计与业务提交是两个事务：极端情况下进程在两次提交之间崩溃会缺一条审计（导入已同事务）。本地单用户可接受。
+5. `cross_model`/`cross_provider` 口径已分开，但前端展示仍用同一枚图标（P2 展示问题）。
+
+### 21.8 结论
+
+- §20.10 的 P1：**3 项已修复关闭，1 项按约束转为 Mock 验证**。
+- 无 P0，无阻塞项。
+- **M1 具备进入 M2 的条件**；M2 开工前建议先读 §20.12 与本节 21.7。
+
+---
+
 ## 附录：M1 执行记录（由后续执行者追加，勿删）
 
 | 批次 | 日期 | 结果 | 证据 |
@@ -1347,3 +1466,4 @@ python scripts/e2e_m1.py                          → 23 项检查全部通过�
 | B4 | 2026-11-05 | **完成**：提示词版本化 + 导入导出；61/61 测试 | `50ef92d`；§20.1 |
 | B5 | 2026-11-05 | **完成**：三层权限 + 派工 + 双池审查人 + 审计；73/73 测试 | `a89eb51`；§20.1 |
 | B6 | 2026-11-05 | **完成**：3 个 E2E 场景 23 项检查；全量回归/构建/迁移核对 | 本文件 §20 |
+| B6 收尾 | 2026-11-05 | **P1 清理**：新增 14 类审计事件、导入整体事务+文件补偿、3 个 API 直接测试；91/91 测试、E2E 23 项、ruff/构建全绿；对账 0 孤儿 | 本文件 §21 |

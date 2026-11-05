@@ -121,6 +121,16 @@ def compute_effective_permissions(session: Session, owner_id: str, employee_id: 
     return {"employee_id": employee.id, "permissions": merged, "sources": sources}
 
 
+def _equivalent(key: str, left: Any, right: Any) -> bool:
+    """权限值等价判断：列表类权限与顺序无关（sorted 后比较），其余直接比较。
+
+    否则 `sorted(set|set)` 的合并结果会因顺序差异被误判成“扩权”（B5 遗留缺陷）。
+    """
+    if isinstance(left, list) and isinstance(right, list):
+        return sorted(left, key=str) == sorted(right, key=str)
+    return left == right
+
+
 def merge_overrides(
     session: Session, owner_id: str, employee_id: str, overrides: dict
 ) -> dict:
@@ -131,7 +141,7 @@ def merge_overrides(
             raise DomainError("VALIDATION_ERROR", f"未知权限项：{key}", 422)
         original = current["permissions"].get(key)
         strict = _strictest(key, original, value)
-        if strict != value and value != original:
+        if not _equivalent(key, strict, value) and not _equivalent(key, value, original):
             raise DomainError(
                 "PERMISSION_WIDEN_DENIED",
                 f"员工层不能放宽权限项 {key}（当前值 {original}）",

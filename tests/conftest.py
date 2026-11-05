@@ -20,6 +20,15 @@ from packages.persistence import Task, get_session, init_db  # noqa: E402
 from packages.shared.types import new_id  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def isolated_prompt_root(tmp_path, monkeypatch):
+    """每个测试用独立提示词根目录，避免污染 data/prompts（否则对账脚本会报孤儿）。"""
+    root = tmp_path / "prompts"
+    root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("AGENTOS_PROMPTS_ROOT", str(root))
+    return root
+
+
 @pytest.fixture
 def db_url(tmp_path, monkeypatch):
     url = f"sqlite:///{tmp_path / 'agentos_test.db'}"

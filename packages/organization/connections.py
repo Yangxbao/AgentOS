@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from packages.agent_core import LiteLLMAdapter
 from packages.model_gateway import catalog
-from packages.model_gateway.credentials import has_credential, validate_ref
+from packages.model_gateway.credentials import has_credential, redact, validate_ref
 from packages.model_gateway.health import health_cache
 from packages.persistence.models import Company, Employee, ModelConnection
 from packages.shared.errors import DomainError
@@ -233,7 +233,8 @@ async def test_connection(session: Session, owner_id: str, connection_id: str) -
         }
     kind = _classify_error(status.detail)
     code, http = ERROR_MAP[kind]
-    raise DomainError(code, f"连接测试失败：{status.detail[:200]}", http,
+    # 上游报错可能把 key 片段带回来，回显前必须脱敏
+    raise DomainError(code, f"连接测试失败：{redact(status.detail)[:200]}", http,
                       {"kind": kind, "latency_ms": latency})
 
 

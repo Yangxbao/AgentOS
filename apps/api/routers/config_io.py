@@ -4,7 +4,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
+from apps.api.audit import audit_action
 from apps.api.deps import ActorContext, get_actor, get_db
+from apps.api.errors import request_id_of
 from packages.config_io import export_company, import_company, inspect_bundle
 
 router = APIRouter(tags=["config"])
@@ -12,9 +14,17 @@ router = APIRouter(tags=["config"])
 
 @router.get("/companies/{company_id}/export")
 def export_endpoint(
-    company_id: str, db: Session = Depends(get_db), actor: ActorContext = Depends(get_actor)
+    company_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor),
 ):
     data = export_company(db, actor.owner_id, company_id)
+    audit_action(
+        db, actor, request,
+        action="config.export", target_type="company", target_id=company_id,
+        detail={"company_id": company_id, "bytes": len(data)},
+    )
     return Response(
         content=data,
         media_type="application/zip",
@@ -36,4 +46,8 @@ async def import_endpoint(
         raise DomainError("IMPORT_EMPTY", "请求体为空，请上传 zip 文件", 422)
     if dry_run:
         return inspect_bundle(db, actor.owner_id, data)
-    return import_company(db, actor.owner_id, data, strategy="rename")
+    result = import_company(
+        db, actor.owner_id, data, strategy="rename",
+        request_id=request_id_of(request), actor_id=actor.actor_id,
+    )
+    return result

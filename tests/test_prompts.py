@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from packages.prompts.service import PROMPTS_ROOT
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _create_prompt(write_client, employee_id, content, note=""):
@@ -20,7 +20,8 @@ def test_prompt_version_immutable_and_active(write_client, seeded_employee):
     assert v1["version"] == 1
     assert v1["is_active"] is True
     file_v1 = Path(v1["file_path"])
-    assert not file_v1.is_absolute()
+    if not file_v1.is_absolute():
+        file_v1 = REPO_ROOT / file_v1
     assert file_v1.exists()
     original = file_v1.read_text(encoding="utf-8")
 
@@ -45,7 +46,10 @@ def test_prompt_activate_switch_pointer(write_client, seeded_employee):
     versions = write_client.get(f"/api/v1/employees/{employee_id}/prompts").json()
     active = [item for item in versions if item["is_active"]]
     assert len(active) == 1 and active[0]["version"] == 2
-    assert Path(v1["file_path"]).exists()
+    old_path = Path(v1["file_path"])
+    if not old_path.is_absolute():
+        old_path = REPO_ROOT / old_path
+    assert old_path.exists()
 
 
 def test_prompt_diff(write_client, seeded_employee):
@@ -79,5 +83,9 @@ def test_prompt_empty_rejected(write_client, seeded_employee):
     assert resp.status_code == 422
 
 
-def test_prompt_files_under_expected_directory(seeded_employee):
-    assert (PROMPTS_ROOT / "employees").exists()
+def test_prompt_files_under_expected_directory(write_client, seeded_employee, isolated_prompt_root):
+    created = _create_prompt(write_client, seeded_employee["id"], "路径检查")
+    path = Path(created["file_path"])
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    assert isolated_prompt_root.resolve() in path.resolve().parents

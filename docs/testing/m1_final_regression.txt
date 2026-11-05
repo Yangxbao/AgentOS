@@ -1,0 +1,79 @@
+AgentOS M1 收尾回归（真实执行，未编造）
+时间：2026-11-05 19:44:31 +0800
+Git HEAD：4467a4b
+
+### 1) pytest tests/ -q
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+........................................................................ [ 79%]
+...................                                                      [100%]
+91 passed in 15.57s
+pytest_exit=0
+
+### 2) ruff check apps packages scripts tests migrations
+All checks passed!
+ruff_exit=0
+
+### 3) npm run build (apps/web)
+✓ 102 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.45 kB │ gzip:   0.29 kB
+dist/assets/index-ByFO2bpM.css   29.06 kB │ gzip:   6.00 kB
+dist/assets/index-BIf-KtP7.js   440.61 kB │ gzip: 138.83 kB
+
+✓ built in 748ms
+build_exit=0
+
+### 4) python scripts/e2e_m1.py
+[PASS] S3 数据质量标注
+[PASS] S3 决策留痕
+[PASS] S3 审计记录
+
+E2E 完成：23 项检查全部通过
+  - S1 组织树
+  - S1 兼任岗位
+  - S1 导出
+  - S1 导出含提示词
+  - S1 导出无密钥
+  - S1 导入
+  - S1 冲突改名
+  - S1 导入计数
+  - S1 提示词往返一致
+  - S1 哈希一致
+  - S2 切换模型
+  - S2 身份不变
+  - S2 历史保留
+  - S2 成本按员工归因
+  - S2 能力基于新模型
+  - S2 权限来源链
+  - S3 员工不能扩权
+  - S3 派工预览
+  - S3 工具硬过滤
+  - S3 审查人独立且跨模型
+  - S3 数据质量标注
+  - S3 决策留痕
+  - S3 审计记录
+e2e_exit=0
+
+### 5) python scripts/reconcile_prompts.py（只读）
+orphan_files: 0
+missing_files: 0
+hash_mismatch: 0
+reconcile_exit=0
+
+### 6) alembic current
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+m1_b5_assignment_audit (head)
+
+### 7) 真实库数据核对
+tables: 16
+  task: 4
+  task_run: 4
+  agent_run: 4
+  usage_record: 4
+  company: 0
+  employee: 0
+  prompt_revision: 0
+  audit_log: 0
+  assignment_decision: 0
+revision: m1_b5_assignment_audit

@@ -17,9 +17,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 DB_PATH = ROOT / "data" / "e2e_m1_temp.db"
-PROMPTS_DIR = ROOT / "data" / "prompts" / "employees"
+PROMPTS_ROOT_DIR = ROOT / "data" / "prompts_e2e"
+PROMPTS_DIR = PROMPTS_ROOT_DIR / "employees"
 
 os.environ["AGENTOS_DB_URL"] = f"sqlite:///{DB_PATH.as_posix()}"
+os.environ["AGENTOS_PROMPTS_ROOT"] = PROMPTS_ROOT_DIR.as_posix()
 os.environ.setdefault("TEST_MODEL_KEY", "e2e-secret")
 os.environ.setdefault("OPENAI_API_KEY", "e2e-openai")
 
@@ -227,12 +229,16 @@ def cleanup(prompt_employee_ids: list[str]) -> None:
         directory = PROMPTS_DIR / employee_id
         if directory.exists():
             shutil.rmtree(directory)
+    if PROMPTS_ROOT_DIR.exists():
+        shutil.rmtree(PROMPTS_ROOT_DIR, ignore_errors=True)
 
 
 def main() -> int:
     for path in (DB_PATH, Path(f"{DB_PATH}-wal"), Path(f"{DB_PATH}-shm")):
         if path.exists():
             path.unlink()
+    if PROMPTS_ROOT_DIR.exists():
+        shutil.rmtree(PROMPTS_ROOT_DIR, ignore_errors=True)
     app = create_app()
     with TestClient(app, base_url="http://127.0.0.1:8000") as client:
         context = scenario_1(client)

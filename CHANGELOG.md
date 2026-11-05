@@ -2,6 +2,27 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased] - M1 收尾（P1 清理）
+
+### Added
+- 核心审计事件 14 类：员工创建/修改/启停/软删除、模型绑定切换、模型连接创建/变更/删除/测试、提示词版本创建/激活、配置导入/导出
+- `apps/api/audit.py`：统一注入 `request_id`、actor 并强制脱敏的审计入口
+- `tests/test_audit_events.py`（7）、`tests/test_import_transaction.py`（4）、`tests/test_api_gaps.py`（7）
+- `AGENTOS_PROMPTS_ROOT` 环境变量：提示词根目录可覆盖，测试与 E2E 使用独立目录
+
+### Changed
+- `packages.permissions.audit.write_audit` 新增 `commit` 参数，支持加入调用方显式事务（导入用 `commit=False`）
+- 配置导入改为**单事务**：公司/部门/岗位/连接/员工/岗位关联/提示词元数据/审计一次提交，失败整体回滚
+- 提示词导出改为版本升序、导入按 `version` 排序，并校验 `content_hash`（不符报 `IMPORT_PROMPT_HASH_MISMATCH`）
+- `create_revision` / `activate_revision` 支持 `commit=False`；写盘或改名失败会清理临时文件
+
+### Fixed
+- 配置导入失败可能留下部分数据与孤儿提示词文件；现按“本批次新建文件清单”补偿删除，补偿失败保留孤儿供对账
+- 提示词往返导入版本倒序（v2 内容被存成 v1）
+- `requires_approval` 的合法收紧因列表顺序被误判为扩权（列表类权限改为集合语义比较）
+- 连接测试的上游错误信息可能回显密钥片段，现 `redact()` 后再生错误消息
+- 测试向真实 `data/prompts` 写入文件：改为每测试独立根目录；历史 36 个目录已移入 `data/backups/prompt_orphans_20261105_194225/`
+
 ## [Unreleased] - M1 完成（B3–B6）
 
 ### Added
