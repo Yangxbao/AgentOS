@@ -13,10 +13,29 @@ const Y_GAP = 120
 function buildGraph(tree: OrgTree, employees: Employee[]): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = []
   const edges: Edge[] = []
+  const departmentLevels = new Map<string, number>()
   let row = 0
+
+  // 公司根节点必须真实存在：否则员工挂到 company-root 时会产生悬空边
+  nodes.push({
+    id: 'company-root',
+    position: { x: 0, y: -150 },
+    data: { label: `🏢 ${tree.company.name}` },
+    style: {
+      width: NODE_WIDTH,
+      fontSize: 13,
+      fontWeight: 600,
+      borderRadius: 10,
+      border: '1px solid #0f766e',
+      background: '#042f2e',
+      color: '#ccfbf1',
+      padding: 8,
+    },
+  })
 
   const walk = (node: OrgNode, level: number, parentId: string | null) => {
     const id = `dept-${node.id}`
+    departmentLevels.set(node.id, level)
     const positionNames = node.positions.map((p) => p.name).join(' / ')
     nodes.push({
       id,
@@ -42,26 +61,17 @@ function buildGraph(tree: OrgTree, employees: Employee[]): { nodes: Node[]; edge
     node.children.forEach((child) => walk(child, level + 1, id))
   }
 
-  tree.departments.forEach((dept) => walk(dept, 0, null))
+  tree.departments.forEach((dept) => walk(dept, 0, 'company-root'))
 
-  // 员工节点：挂在所属部门右侧（无部门则挂公司层）
-  const byDepartment = new Map<string, Employee[]>()
-  const unassigned: Employee[] = []
-  employees.forEach((employee) => {
-    if (employee.department_id) {
-      const list = byDepartment.get(employee.department_id) ?? []
-      list.push(employee)
-      byDepartment.set(employee.department_id, list)
-    } else {
-      unassigned.push(employee)
-    }
-  })
-  let employeeRow = 0
+  // 员工节点：挂在所属部门右侧；无部门则挂公司根节点左侧，避免与部门重叠
+  const counters = new Map<string, number>()
   const addEmployeeNode = (employee: Employee, sourceId: string, x: number) => {
+    const index = counters.get(sourceId) ?? 0
+    counters.set(sourceId, index + 1)
     const id = `emp-${employee.id}`
     nodes.push({
       id,
-      position: { x, y: employeeRow * 90 },
+      position: { x, y: index * 90 },
       data: { label: `${employee.avatar || '🤖'} ${employee.name}\n${employee.title || '员工'}` },
       style: {
         width: 160,
@@ -74,14 +84,15 @@ function buildGraph(tree: OrgTree, employees: Employee[]): { nodes: Node[]; edge
         padding: 6,
       },
     })
-    employeeRow += 1
     edges.push({ id: `edge-${sourceId}-${id}`, source: sourceId, target: id, style: { strokeDasharray: '4 2' } })
   }
   employees.forEach((employee) => {
-    const deptId = employee.department_id
-    const source = deptId && nodes.some((n) => n.id === `dept-${deptId}`) ? `dept-${deptId}` : null
-    if (source) addEmployeeNode(employee, source, 260)
-    else if (unassigned.includes(employee)) addEmployeeNode(employee, 'company-root', 0)
+    const departmentId = employee.department_id
+    if (departmentId && departmentLevels.has(departmentId)) {
+      addEmployeeNode(employee, `dept-${departmentId}`, (departmentLevels.get(departmentId)! + 1) * X_GAP)
+    } else {
+      addEmployeeNode(employee, 'company-root', -260)
+    }
   })
   return { nodes, edges }
 }
@@ -150,20 +161,29 @@ export default function OrgPage() {
       <div className="min-h-0 flex-1">
         {tree.isLoading ? (
           <p className="p-6 text-slate-400">正在加载组织树…</p>
-        ) : graph.nodes.length === 0 ? (
-          <div className="p-6">
-            <p className="text-slate-400">这家公司还没有部门。</p>
-            <Link className="mt-3 inline-block text-sky-400 underline" to="/settings/organization">
-              去添加部门
-            </Link>
-          </div>
+        ) : !tree.data ? (
+          <p className="p-6 text-slate-400">暂无组织数据</p>
         ) : (
-          <ReactFlow nodes={graph.nodes} edges={graph.edges} fitView proOptions={{ hideAttribution: true }}>
+          <ReactFlow
+            key={graph.nodes.map((node) => node.id).join('|')}
+            nodes={graph.nodes}
+            edges={graph.edges}
+            fitView
+            fitViewOptions={{ padding: 0.25 }}
+            proOptions={{ hideAttribution: true }}
+          >
             <Background />
-            <Controls />
+            <Controls position="bottom-right" />
           </ReactFlow>
         )}
       </div>
+
+      {tree.data && tree.data.departments.length === 0 && (
+        <div className="border-t border-slate-800 px-4 py-3 text-sm text-slate-400">
+          这家公司还没有部门，员工暂时挂在公司节点下。
+          <Link className="ml-2 text-sky-400 underline" to="/settings/organization">去添加部门</Link>
+        </div>
+      )}
 
       {tree.data && tree.data.unassigned_positions.length > 0 && (
         <div className="border-t border-slate-800 px-4 py-3 text-sm text-slate-400">

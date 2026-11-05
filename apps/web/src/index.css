@@ -1,1 +1,35 @@
 @import "tailwindcss";
+
+/* 组织图控件：xyflow 的 CSS 变量优先级高于后置样式表，必须改变量 */
+.react-flow {
+  --xy-controls-button-background-color: #0f172a;
+  --xy-controls-button-background-color-hover: #1e293b;
+  --xy-controls-button-color: #cbd5e1;
+  --xy-controls-button-color-hover: #f8fafc;
+  --xy-controls-button-border-color: #1e293b;
+  --xy-controls-box-shadow: 0 0 0 1px #334155;
+}
+.react-flow__controls {
+  border-radius: 8px;
+  overflow: hidden;
+}
+.react-flow__attribution {
+  display: none;
+}
+
+/* 组织图控件：xyflow 的 CSS 变量优先级高于后置样式表，必须改变量 */
+.react-flow {
+  --xy-controls-button-background-color: #0f172a;
+  --xy-controls-button-background-color-hover: #1e293b;
+  --xy-controls-button-color: #cbd5e1;
+  --xy-controls-button-color-hover: #f8fafc;
+  --xy-controls-button-border-color: #1e293b;
+  --xy-controls-box-shadow: 0 0 0 1px #334155;
+}
+.react-flow__controls {
+  border-radius: 8px;
+  overflow: hidden;
+}
+.react-flow__attribution {
+  display: none;
+}

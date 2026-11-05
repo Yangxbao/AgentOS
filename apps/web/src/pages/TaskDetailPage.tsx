@@ -43,6 +43,7 @@ export default function TaskDetailPage() {
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['task', id] })
+    queryClient.invalidateQueries({ queryKey: ['timeline', id] })
     queryClient.invalidateQueries({ queryKey: ['tasks'] })
   }
 
@@ -185,6 +186,11 @@ export default function TaskDetailPage() {
                   disabled={data.state !== 'draft' || savePlan.isPending}
                   onClick={() => savePlan.mutate()}>保存计划</button>
         </div>
+        {steps.length === 0 && (
+          <p className="mt-2 text-xs text-slate-500">
+            未设计划：按单员工单步执行（执行记录里仍会显示步骤 s1）。
+          </p>
+        )}
         <div className="mt-3 space-y-2">
           {steps.map((step, index) => (
             <div key={index} className="grid gap-2 rounded border border-slate-800 p-2 md:grid-cols-12">
@@ -293,7 +299,8 @@ export default function TaskDetailPage() {
               {runInfo.agent_runs.map((agent) => (
                 <details key={agent.id} className="mt-2 rounded border border-slate-800 p-2">
                   <summary className="cursor-pointer text-slate-300">
-                    {agent.step_id} · {agent.employee_name} · {agent.model} · {agent.state}
+                    {agent.step_id} · {agent.employee_name} · {agent.model} ·{' '}
+                    <StateBadge state={agent.state} />
                     <span className="ml-2 text-slate-500">{ts(agent.started_at)}</span>
                   </summary>
                   <div className="mt-2 space-y-1 text-slate-400">
