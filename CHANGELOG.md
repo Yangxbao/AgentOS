@@ -29,7 +29,7 @@
 ### Security
 - `AGENTOS_TOOL_EXECUTION` 默认 **off**；即使开启仍需公司策略 + 员工白名单 + 工作区授权
 - Shell 永久禁用：无任何命令执行代码路径（AST 扫描证明），策略与 API 均拒绝开启
-- 已知限制：Windows TOCTOU 未彻底消除（见 `M3_MASTER_HANDOFF.md` §6.2）
+- 已知限制：Windows TOCTOU 未彻底消除（见 `HANDOFF.md` §8.2）
 
 ## [Unreleased] - M2 任务闭环
 

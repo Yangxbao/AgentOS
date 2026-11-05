@@ -33,7 +33,7 @@
 - ⏳ M3-D 多 Worker（租约/心跳/幂等/公平调度）
 - ⏳ M3-F 真实业务验收（GitHub 教程生成，默认本地 stub）
 - Shell 执行、向量 RAG、MCP 生态明确暂缓（原因见 M3_MASTER_PLAN §16）
-- 设计/交接：[M3_MASTER_PLAN.md](../../M3_MASTER_PLAN.md) · [M3_MASTER_HANDOFF.md](../../M3_MASTER_HANDOFF.md)
+- 设计/交接：[HANDOFF.md](../../HANDOFF.md)（项目总交接）· [M3_MASTER_PLAN.md](../../M3_MASTER_PLAN.md)（M3 设计）
 
 ## M4 AI 会议室
 - 多 Agent 受控讨论（调度系统控制生命周期）、@成员、召集/主持人

@@ -5,7 +5,8 @@
 不是多 AI 群聊工具。每个 AI 员工有自己的身份、岗位、能力、职责和权限；不同 AI 可以协作也可以互相质疑；开发员必须接受测试员的独立验证；**用户始终拥有最终控制权**。
 
 > 当前状态：**M2 完成；M3-A 工具执行层已落地（工作区/文件/HTTP/工具审批/审计），浏览器验收 29/29**
-> M2：[交接](M2_MASTER_HANDOFF.md) · [设计](M2_MASTER_PLAN.md)｜M3：[规划](M3_MASTER_PLAN.md) · [交接](M3_MASTER_HANDOFF.md)
+> 接手项目请先读 **[HANDOFF.md](HANDOFF.md)**（环境/架构/数据/命令/坑/下一步，一份就够）
+> 历史：M1 [单文档](M1_PLAN_HANDOFF.md)｜M2 [设计](M2_MASTER_PLAN.md) · [交接](M2_MASTER_HANDOFF.md)｜M3 [设计](M3_MASTER_PLAN.md)
 
 ## 特性
 
@@ -28,7 +29,8 @@
 | 架构 | [系统架构](docs/architecture/SYSTEM_ARCHITECTURE.md) · [数据库](docs/architecture/DATABASE_DESIGN.md) · [Agent Adapter](docs/architecture/AGENT_ADAPTER.md) · [安全模型](docs/architecture/SECURITY_MODEL.md) |
 | M1 | [M1_PLAN_HANDOFF.md](M1_PLAN_HANDOFF.md)（组织/员工/模型/提示词/权限/派工/审计） |
 | M2 | [M2_MASTER_PLAN.md](M2_MASTER_PLAN.md)（架构/数据/API/状态机/时序）· [M2_MASTER_HANDOFF.md](M2_MASTER_HANDOFF.md)（进度/证据/风险） |
-| M3 | [M3_MASTER_PLAN.md](M3_MASTER_PLAN.md)（工具层/权限/文件安全/递归/记忆/Worker）· [M3_MASTER_HANDOFF.md](M3_MASTER_HANDOFF.md)（M3-A 交付/验收/风险） |
+| 交接 | **[HANDOFF.md](HANDOFF.md)**（唯一入口：环境变量/目录/架构/数据库/命令/坑/下一步） |
+| M3 | [M3_MASTER_PLAN.md](M3_MASTER_PLAN.md)（工具层/权限/文件安全/递归/记忆/Worker 设计） |
 | 开发 | [路线图](docs/development/ROADMAP.md) · [里程碑验收](docs/development/MILESTONE_ACCEPTANCE.md) · [ADR](docs/decisions/ADR_INDEX.md) |
 | 测试 | [M0](docs/testing/M0_TEST_REPORT.md) · [M1](docs/testing/m1_final_regression.txt) · [M2 回归](docs/testing/m2_final_regression.txt) · [M2 E2E](docs/testing/m2_e2e_mock.txt) · [M3 浏览器验收](docs/testing/m3_browser_acceptance.txt) |
 

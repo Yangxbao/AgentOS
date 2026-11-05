@@ -19,7 +19,7 @@ router = APIRouter(tags=["legacy"])
 
 @router.get("/health")
 def health() -> dict:
-    return {"status": "ok", "mode": os.environ.get("AGENTOS_MODE", "local"), "version": "0.2.0-m2"}
+    return {"status": "ok", "mode": os.environ.get("AGENTOS_MODE", "local"), "version": "0.3.0-m3a"}
 
 
 @router.get("/tasks")
