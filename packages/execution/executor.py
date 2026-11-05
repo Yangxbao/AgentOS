@@ -92,6 +92,17 @@ def _task_cost(session: Session, task_id: str) -> float:
     return round(float(total or 0.0), 8)
 
 
+def _step_timeout(task: Task, step: dict) -> float:
+    """步骤超时上限：步骤级 > 任务 context > 默认 300s。"""
+    for value in (step.get("timeout_s"), (task.context or {}).get("step_timeout_s")):
+        if value:
+            try:
+                return max(0.05, float(value))
+            except (TypeError, ValueError):
+                continue
+    return 300.0
+
+
 async def execute_run(run_id: str) -> str:
     """执行一条已认领的 run；返回终态字符串（便于 runner/测试断言）。"""
     session = get_session()
@@ -366,7 +377,23 @@ async def _run_step(
             AgentTask(instruction=instruction, input=context, task_id=f"{task.id}:{step['id']}"),
             system_prompt=system_prompt,
         )
-        result = await collect_final(adapter, handle)
+        timeout_s = _step_timeout(task, step)
+        try:
+            result = await asyncio.wait_for(collect_final(adapter, handle), timeout=timeout_s)
+        except asyncio.TimeoutError as exc:
+            await adapter.close()
+            async with lock:
+                session.expire_all()
+                _emit(session, task, run_id, "agent.timeout", {
+                    "step_id": step["id"], "employee_id": employee.id,
+                    "timeout_s": timeout_s, "model": bundle.model,
+                })
+                session.commit()
+            raise DomainError(
+                "EXECUTION_TIMEOUT",
+                f"步骤 {step['id']} 超过 {timeout_s}s 未完成，已终止",
+                504, {"step_id": step["id"], "timeout_s": timeout_s},
+            ) from exc
         await adapter.close()
         ended = _now()
 

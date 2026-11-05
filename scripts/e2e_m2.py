@@ -262,20 +262,37 @@ def scenario_8_real(client, ctx) -> None:
     if not key_configured:
         print("[SKIP] S8 真实模型：未配置 DEEPSEEK_API_KEY，标记为未验证")
         return
-    task = create_task(client, ctx["company"]["id"], ctx["dev"]["id"],
-                       title="S8 真实模型最小验证",
+    task = create_task(client, ctx["company"]["id"], ctx["manager"]["id"],
+                       title="S8 真实模型最小协作",
                        instruction="只回复这一句话：M2 real call ok",
                        execution_mode="real")
+    plan = client.put(f"/api/v1/tasks/{task['id']}/plan", json={"steps": [
+        {"id": "s1", "employee_id": ctx["dev"]["id"],
+         "instruction": "只回复这一句话：M2 real step1 ok"},
+        {"id": "s2", "employee_id": ctx["qa"]["id"],
+         "instruction": "只回复这一句话：M2 real step2 ok", "depends_on": ["s1"]},
+    ]}, headers=HEADERS)
+    assert plan.status_code == 200, plan.text
     assert post(client, f"/api/v1/tasks/{task['id']}/run").status_code == 202
-    detail = wait_task(client, task["id"], {"succeeded", "failed"}, timeout=180)
+    detail = wait_task(client, task["id"], {"succeeded", "failed"}, timeout=240)
     agents = agents_of(detail)
-    ok = detail["state"] == "succeeded" and agents and agents[0]["state"] == "succeeded"
-    usage = detail["usage"]["records"][0] if detail["usage"]["records"] else {}
-    check("S8 真实模型完成一次最小调用", bool(ok), str(detail.get("result")))
-    if ok:
-        print(f"       模型={agents[0]['model']} tokens={usage.get('prompt_tokens')}+"
-              f"{usage.get('completion_tokens')} cost=${usage.get('cost_usd')} billable={usage.get('billable')}")
-        check("S8 真实调用计入计费", usage.get("billable") is True)
+    ok = detail["state"] == "succeeded" and len(agents) == 2 and all(
+        agent["state"] == "succeeded" for agent in agents
+    )
+    check("S8 真实模型完成两步协作", bool(ok), str(detail.get("result")))
+    if not ok:
+        return
+    records = detail["usage"]["records"]
+    handoffs = [item for item in get(client, f"/api/v1/tasks/{task['id']}/timeline").json()["items"]
+                if item["kind"] == "handoff"]
+    check("S8 真实调用全部计费且交接落库",
+          all(item["billable"] is True for item in records) and len(handoffs) == 1)
+    for record in records:
+        print(f"       {record['employee_name']} model={record['model']} "
+              f"tokens={record['prompt_tokens']}+{record['completion_tokens']} "
+              f"cost=${record['cost_usd']}")
+    print(f"       合计 tokens={detail['usage']['total_tokens']} "
+          f"cost=${detail['usage']['total_cost_usd']}")
 
 
 def cleanup() -> None:

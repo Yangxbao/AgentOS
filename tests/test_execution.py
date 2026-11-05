@@ -1,12 +1,14 @@
-"""M2-B 验收：Mock 执行、权限闸门、失败/重试、暂停/恢复、取消、重启恢复。"""
+"""M2-B 验收：Mock 执行、权限闸门、失败/超时/重试、暂停/恢复、取消、重启恢复。"""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
+from packages.execution.adapter_factory import AdapterBundle
 from packages.execution.runner import TaskRunner
 from packages.persistence import get_session
 from packages.persistence.models import Task, TaskRun
-from packages.shared.types import new_id
+from packages.shared.types import AgentEvent, ExecutionHandle, new_id
 from tests.helpers import all_agent_runs, create_task, task_detail, wait_agent_runs, wait_task
 
 
@@ -127,6 +129,47 @@ def test_mock_injected_failure(write_client, seeded_team):
     agents = all_agent_runs(detail)
     assert len(agents) == 1 and agents[0]["state"] == "failed"
     assert "injected failure" in (agents[0]["error"] or "")
+
+
+class _HangingAdapter:
+    """替身：永不返回，用于验证执行器的步骤超时兜底。"""
+
+    adapter_type = "stub"
+
+    async def execute(self, task, system_prompt=""):
+        return ExecutionHandle(adapter_type=self.adapter_type)
+
+    async def stream_events(self, handle):
+        await asyncio.sleep(5)
+        yield AgentEvent(type="failed", payload={"error": "should not reach"})
+
+    async def get_usage(self, handle):
+        return None
+
+    async def close(self):
+        return None
+
+
+def test_step_timeout_is_enforced(write_client, seeded_team, monkeypatch):
+    def fake_build(session, employee, mode):
+        return AdapterBundle(
+            adapter=_HangingAdapter(), mode="mock", model="stub/hang",
+            connection_id=None, label=employee.name,
+        )
+
+    monkeypatch.setattr("packages.execution.executor.build_adapter", fake_build)
+    task = create_task(
+        write_client, seeded_team["company"]["id"], seeded_team["dev"]["id"],
+        title="步骤超时", context={"step_timeout_s": 0.2}, execution_mode="mock",
+    )
+    write_client.post(f"/api/v1/tasks/{task['id']}/run")
+    detail = wait_task(write_client, task["id"], {"failed"}, timeout=15)
+    assert detail["result"]["error"]["code"] == "EXECUTION_TIMEOUT"
+    assert "0.2s" in detail["result"]["error"]["message"]
+    assert all_agent_runs(detail) == []  # 超时不伪造成功记录
+
+    timeline = write_client.get(f"/api/v1/tasks/{task['id']}/timeline").json()["items"]
+    assert any(item["type"] == "agent.timeout" for item in timeline)
 
 
 def _three_step_plan(client, team, task_id):

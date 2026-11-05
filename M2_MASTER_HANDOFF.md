@@ -15,11 +15,11 @@
 | 多 Agent | 3 员工串行交接 + 依赖波次并行；交接记录可查；自动拆分带严格校验 |
 | 人工审批 | before_run / after_run 双关卡；批准 / 驳回 / 要求修改；驳回可指定回退步骤；返工上限 |
 | 监控 | 任务时间线、Agent 执行详情、Token/成本聚合、监控摘要；Mock 明确标记不计费 |
-| 自动化测试 | **128 passed**（M2 新增 37） |
+| 自动化测试 | **129 passed**（M2 新增 38） |
 | E2E | Mock 全流程 **13 项通过**；含真实最小调用 **15 项通过** |
 | lint / 构建 | ruff 全绿；前端 `tsc -b && vite build` 通过（467.02 kB，gzip 144.79） |
 | 数据库 | 18 张表；真实库已迁移到 `m2_task_center`；历史 4 任务/4 run 未动 |
-| 真实模型 | 2 次最小调用（每次 73+5 tokens，$0.00001395），合计 ≈ **$0.0000279** |
+| 真实模型 | 4 次最小调用（两次单步各 73+5，最终两步协作 74+6 / 111+6），合计 353 tokens ≈ **$0.00006285** |
 | 浏览器验收 | **未执行**（未安装 Playwright，按约束不安装）；已列为未验证项 |
 
 ---
@@ -105,6 +105,7 @@
    任一项失败 → `failed` + `run.failed` 事件，**不产生 AgentRun/Usage**。
 4. **检查点**：每个步骤成功即提交 `checkpoint.completed_steps/outputs`；恢复只跑未完成步骤。
 5. **暂停/取消**：在步骤边界生效；正在进行的 LLM 调用不可中断（Adapter 能力如实声明）。
+5.1 **超时兜底**：每个步骤 `asyncio.wait_for`（步骤级 > 任务 `context.step_timeout_s` > 默认 300s），超时记 `agent.timeout` 事件并失败为 `EXECUTION_TIMEOUT`。
 6. **重启**：lifespan `runner.recover()` 把遗留 `running` 标记 `interrupted`，任务转 `paused`；用户 resume 后从检查点续跑。
 7. **审批**：before_run 首次必过（已有驳回/批准决策的返工不再重复拦）；after_run 每次交付都签收。
 8. **驳回回退**：`rewind_step_id` 指定步骤及其下游重置，上游产出保留；`rework_count` 超限返回 409。
@@ -118,16 +119,16 @@
 ### 6.1 自动化测试（`docs/testing/m2_final_regression.txt`）
 
 ```
-pytest tests/ -q                                  → 128 passed in 33.26s
+pytest tests/ -q                                  → 129 passed in 33.60s
 ruff check apps packages scripts tests migrations  → All checks passed!
 cd apps/web && npm run build                      → 467.02 kB (gzip 144.79), 813ms
 alembic current                                   → m2_task_center (head)
 reconcile_prompts.py                              → 0 orphan / 0 missing / 0 mismatch
 ```
 
-M2 新增 37 个：
+M2 新增 38 个：
 - `test_task_center.py` 8：持久化、筛选、分配/审核校验、乐观锁、非法迁移、防重复、计划校验、404
-- `test_execution.py` 10：Mock 成功、工具越权、风险超限、真实模式缺凭据、停用后重试、注入失败、暂停恢复不重复、运行中取消、重启恢复、提示词版本
+- `test_execution.py` 11：Mock 成功、工具越权、风险超限、真实模式缺凭据、停用后重试、注入失败、步骤超时、暂停恢复不重复、运行中取消、重启恢复、提示词版本
 - `test_collaboration.py` 7：3 员工串行交接、并行波次（started_at 重叠）、重复/空步骤、自动拆分成功/坏 JSON 不伪造/非管理者/成环
 - `test_approvals.py` 6：before_run、after_run 不重跑、驳回回退、返工上限、待审批取消、待办列表
 - `test_observability.py` 6：时间线、成本一致、Agent 详情、监控摘要、时间过滤、无密钥泄露
@@ -149,7 +150,7 @@ M2 新增 37 个：
 | 模型标识 | `mock/echo`（adapter_type=`mock`） | 连接里的 `provider/model` |
 | 计费 | `usage_record.billable=false`，cost=0 | `billable=true`，`litellm.completion_cost`，失败为 NULL |
 | 外部请求 | 无 | 有 |
-| 本轮实际调用 | 测试与 E2E 中所有执行步骤（未逐次统计总数，均为本地 Mock，无外部请求） | **2 次**，DeepSeek，每次 73+5 tokens，$0.00001395，合计 ≈ $0.0000279 |
+| 本轮实际调用 | 测试与 E2E 中所有执行步骤（未逐次统计总数，均为本地 Mock，无外部请求） | **4 次**（两次单步、一次两步协作），共 353 tokens，合计 ≈ $0.00006285；保存在 `m2_e2e_real.txt` 的证据轮为 2 次 / 197 tokens / $0.00003495 |
 
 > 真实调用只用 `.env` 已有 Key，`AGENTOS_MAX_TOKENS=96`，未新增任何付费服务。
 

@@ -18,9 +18,17 @@ M2 E2E 开始（mock 模式+ 真实最小调用）
 
 [1;31mProvider List: https://docs.litellm.ai/docs/providers[0m
 
-[PASS] S8 真实模型完成一次最小调用
-       模型=deepseek/deepseek-chat tokens=73+5 cost=$1.395e-05 billable=True
-[PASS] S8 真实调用计入计费
+
+[1;31mProvider List: https://docs.litellm.ai/docs/providers[0m
+
+
+[1;31mProvider List: https://docs.litellm.ai/docs/providers[0m
+
+[PASS] S8 真实模型完成两步协作
+[PASS] S8 真实调用全部计费且交接落库
+       测试丙 model=deepseek/deepseek-chat tokens=111+6 cost=$2.025e-05
+       开发乙 model=deepseek/deepseek-chat tokens=74+6 cost=$1.47e-05
+       合计 tokens=197 cost=$3.495e-05
 
 M2 E2E 完成：15 项通过，0 项失败
   - S1 单 Agent 完成任务
@@ -36,6 +44,6 @@ M2 E2E 完成：15 项通过，0 项失败
   - S6 重启后标记中断并转 paused
   - S6 恢复后续跑成功
   - S7 越权工具被拒且未调用模型
-  - S8 真实模型完成一次最小调用
-  - S8 真实调用计入计费
+  - S8 真实模型完成两步协作
+  - S8 真实调用全部计费且交接落库
 浏览器可视化验收：未执行（未安装 Playwright，按约束不安装）
