@@ -48,7 +48,7 @@ AgentOS 是一个**本地运行的 AI 数字员工协作操作系统**：用户�
 2. **不要改** Windows Defender、防火墙、注册表、系统环境变量、代理设置。
 3. **不要推 GitHub**、不要公网部署（本机代理只放通 `api.github.com`，`github.com` 被拦；如需推代码只能用 GitHub Git Data API）。
 4. **不要删除** `data/agentos.db`、`data/backups/`、`E:\AgentOS\data\workspaces`。
-5. 真实模型调用**会产生费用**：默认 `AGENTOS_MODEL_MODE=mock`，只有明确需要时才切 `real`，并限制 `AGENTOS_MAX_TOKENS`。
+5. 真实模型调用**会产生费用**：当前 `E://AgentOS//.env` 已显式设置 `AGENTOS_MODEL_MODE=mock`（不产生外部调用）。注意 `auto` 模式在**该变量为空时会按 real 处理**，改 `.env` 前先想清楚；确需真实调用时同时限制 `AGENTOS_MAX_TOKENS`。
 6. 生成文件时注意编码：`alembic.ini` 必须是 **ASCII**（中文注释会触发 cp936 解析失败）；`.ps1/.bat` 里不要写非 ASCII 路径。
 
 ### 1.2 数据目录约定
@@ -139,7 +139,7 @@ cd apps\web && npm install
 | `AGENTOS_MODE` | `local` | 只回显在 `/api/health`，无功能含义 | `apps/api/routers/legacy.py` |
 | `DEEPSEEK_API_KEY` | 空 | 真实调用凭据（`.env` 里已有）；**不要打印、不要写进任何文件** | litellm 原生机制 |
 
-> 两个最容易踩的：**① `AGENTOS_TOOL_EXECUTION` 默认 off**，所以“工具不执行”通常是正常配置，不是 bug；**② 测试必须 `AGENTOS_MODEL_MODE=mock`**，否则会真花钱（`tests/conftest.py` 已 autouse 设为 mock）。
+> 两个最容易踩的：**① `AGENTOS_TOOL_EXECUTION` 默认 off**，所以“工具不执行”通常是正常配置，不是 bug；**② `AGENTOS_MODEL_MODE` 为空时 `auto` 会走 real**——本机 `.env` 已设为 `mock`，`tests/conftest.py` 也已 autouse 设为 mock，但你自己起服务时不要把它删掉。
 
 ---
 
@@ -538,6 +538,7 @@ scripts/browser_acceptance.py                     → 29 项全过（0 失败，
 | 测试污染真实工作区 | `data/workspaces/ws-*` 残留 | 测试用 `tmp_path` 作 `root_path` |
 | 工具“不执行” | 任务正常完成、0 条 tool_call | 先看 `AGENTOS_TOOL_EXECUTION`（默认 off）→ 公司策略 → 员工 `tools_allowed` → 工作区授权 |
 | 浏览器验收端口占用 | 脚本起不来 | 先确认 8000/5173/9333 没被占用 |
+| UI 建任务默认 `execution_mode=auto` | 没设 `AGENTOS_MODEL_MODE` 时会真实调用并计费 | 保持 `.env` 里 `AGENTOS_MODEL_MODE=mock`，或建任务时显式选 mock |
 | Edge 启动参数 | 用 `--headless=new` + `--remote-debugging-port=9333`；`PUT /json/new` 建 target | 见 `scripts/browser_acceptance.py` |
 | 前端 API 前缀 | 404 | 路径必须 `/api/v1/...`（`src/api/client.ts` 只拼 base） |
 | 前端刷新后状态旧 | 面板显示 0 次 | TanStack Query 轮询；动作后 `invalidateQueries` |
