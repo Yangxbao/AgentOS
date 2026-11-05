@@ -139,7 +139,7 @@ export interface TaskDetail extends Task {
 }
 
 export interface TimelineItem {
-  kind: 'event' | 'agent_run' | 'approval' | 'handoff'
+  kind: 'event' | 'agent_run' | 'approval' | 'handoff' | 'tool_call'
   type: string
   at: string
   payload?: Record<string, unknown>
@@ -150,6 +150,11 @@ export interface TimelineItem {
   summary?: string
   status?: string
   comment?: string
+  tool?: string
+  tool_call_id?: string
+  risk?: string
+  error_code?: string | null
+  duration_ms?: number
 }
 
 export interface MonitorSummary {

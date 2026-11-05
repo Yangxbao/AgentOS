@@ -31,6 +31,8 @@ class GatewayResponse:
     model: str
     usage: UsageReport
     raw_finish_reason: str
+    tool_calls: list[dict] | None = None
+    raw_message: dict | None = None
 
 
 def _extract_usage(response: Any, model: str, latency_ms: int) -> UsageReport:
@@ -52,9 +54,27 @@ def _extract_usage(response: Any, model: str, latency_ms: int) -> UsageReport:
     )
 
 
+def _extract_tool_calls(message: Any) -> list[dict]:
+    """把 LiteLLM 的 tool_calls 归一成纯 dict（OpenAI 兼容格式）。"""
+    raw = getattr(message, "tool_calls", None) or []
+    calls: list[dict] = []
+    for item in raw:
+        function = getattr(item, "function", None)
+        name = getattr(function, "name", None) if function else None
+        arguments = getattr(function, "arguments", "") if function else ""
+        if not name:
+            continue
+        calls.append({
+            "id": getattr(item, "id", "") or "",
+            "type": "function",
+            "function": {"name": name, "arguments": arguments or "{}"},
+        })
+    return calls
+
+
 async def chat(
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     *,
     fallbacks: Optional[list[str]] = None,
     timeout: float = 60.0,
@@ -63,9 +83,18 @@ async def chat(
     max_tokens: int = 2048,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    tools: Optional[list[dict]] = None,
+    tool_choice: Optional[str] = None,
 ) -> GatewayResponse:
-    """统一聊天调用。fallbacks 为备用模型列表（员工级主备模型机制的基础）。"""
+    """统一聊天调用。fallbacks 为备用模型列表（员工级主备模型机制的基础）。
+
+    tools 走 OpenAI 兼容的 function calling；不传时行为与 M2 完全一致。
+    """
     started = time.perf_counter()
+    extra: dict[str, Any] = {}
+    if tools:
+        extra["tools"] = tools
+        extra["tool_choice"] = tool_choice or "auto"
     try:
         response = await litellm.acompletion(
             model=model,
@@ -77,6 +106,7 @@ async def chat(
             max_tokens=max_tokens,
             api_key=api_key,
             base_url=base_url,
+            **extra,
         )
     except Exception as exc:  # litellm 异常类型众多，统一包装；不记录请求体
         raise GatewayError(f"{type(exc).__name__}: {str(exc)[:300]}") from exc
@@ -89,4 +119,10 @@ async def chat(
         model=model,
         usage=_extract_usage(response, model, latency_ms),
         raw_finish_reason=str(getattr(choice, "finish_reason", "")),
+        tool_calls=_extract_tool_calls(choice.message),
+        raw_message={
+            "role": "assistant",
+            "content": content,
+            "tool_calls": _extract_tool_calls(choice.message),
+        },
     )

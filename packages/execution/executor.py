@@ -33,10 +33,17 @@ from packages.shared.types import AgentTask, new_id
 from packages.tasks import state as st
 from packages.tasks.approvals import create_approval
 from packages.tasks.plan import topological_waves
+from packages.tools.policy import global_tools_enabled
 
 from .adapter_factory import build_adapter
 from .guard import check_execution, steps_of
 from .prompting import build_system_prompt
+from .tool_loop import (
+    RunSuspended,
+    authorized_tools,
+    build_tool_context,
+    run_tool_loop,
+)
 
 logger = logging.getLogger("agentos.execution")
 
@@ -172,6 +179,14 @@ async def _execute(session: Session, task: Task, run: TaskRun) -> str:
     write_lock = asyncio.Lock()
 
     for wave in waves:
+        # 结束上一波遗留的只读事务：SQLite WAL 下的读事务是快照，
+        # 不结束它就会看不到其他会话刚提交的 cancel_requested/pause_requested。
+        session.commit()
+        session.expire_all()
+        task = session.get(Task, task.id)
+        run = session.get(TaskRun, run.id)
+        checkpoint = dict(run.checkpoint or {})
+        completed = set(checkpoint.get("completed_steps", []))
         if task.cancel_requested:
             return _cancel(session, task, run)
         if task.pause_requested:
@@ -194,6 +209,12 @@ async def _execute(session: Session, task: Task, run: TaskRun) -> str:
             for step in ready
         ]
         results = await asyncio.gather(*coros, return_exceptions=True)
+
+        if any(isinstance(item, RunSuspended) for item in results):
+            session.expire_all()
+            run = session.get(TaskRun, run.id)
+            task = session.get(Task, task.id)
+            return run.state  # awaiting_approval
 
         failures = [item for item in results if isinstance(item, BaseException)]
         session.expire_all()
@@ -331,6 +352,31 @@ def _pause(session: Session, task: Task, run: TaskRun, checkpoint: dict) -> str:
     return "paused"
 
 
+def _suspend_for_tool_approval(
+    session: Session, task: Task, run: TaskRun, checkpoint: dict
+) -> None:
+    """工具调用待审批：保存 messages/待执行调用，任务与 run 同步挂起。"""
+    fresh_run = session.get(TaskRun, run.id)
+    fresh_task = session.get(Task, task.id)
+    if fresh_run is None or fresh_task is None:
+        return
+    merged = dict(fresh_run.checkpoint or {})
+    tool_state = checkpoint.get("tool_state")
+    if tool_state:
+        merged["tool_state"] = tool_state
+    fresh_run.checkpoint = merged
+    fresh_run.state = "awaiting_approval"
+    fresh_run.ended_at = _now()
+    fresh_task.state = "awaiting_approval"
+    fresh_task.version = (fresh_task.version or 1) + 1
+    _emit(session, fresh_task, fresh_run.id, "run.awaiting_approval", {
+        "approval_id": (tool_state or {}).get("approval_id"),
+        "gate": "tool_call",
+        "step_id": (tool_state or {}).get("step_id"),
+    })
+    session.commit()
+
+
 async def _run_step(
     *,
     owner_id: str,
@@ -369,17 +415,53 @@ async def _run_step(
 
         if child_id:
             child = session.get(Task, child_id)
-            if child is not None:
+            if child is not None and child.state != "running":
                 child.state = "running"
+                # 立即提交：否则这个写事务会一直持有 SQLite 写锁，
+                # 把并发的 cancel/pause 请求阻塞到本步骤结束（M2 遗留时序缺陷）
+                session.commit()
 
         adapter = bundle.adapter
-        handle = await adapter.execute(
-            AgentTask(instruction=instruction, input=context, task_id=f"{task.id}:{step['id']}"),
-            system_prompt=system_prompt,
-        )
         timeout_s = _step_timeout(task, step)
+        prepare = getattr(adapter, "prepare", None)
+        if callable(prepare):
+            prepare(instruction)
+
+        # 工具路径：仅当员工确实有可用工具时才进入（否则保持 M2 的单次调用语义）
+        tool_ctx = build_tool_context(
+            session, owner_id=owner_id, task=task, run=run, employee=employee,
+            step_id=step["id"],
+        )
+        tools = authorized_tools(tool_ctx) if global_tools_enabled() else []
+        tool_count = 0
+        handle = None
         try:
-            result = await asyncio.wait_for(collect_final(adapter, handle), timeout=timeout_s)
+            if tools:
+                limit = int(tool_ctx.tool_policy.get("max_tool_calls_per_step") or 8)
+                loop_result = await asyncio.wait_for(
+                    run_tool_loop(
+                        session=session, task=task, run=run, step=step, employee=employee,
+                        adapter=adapter, system_prompt=system_prompt, instruction=instruction,
+                        checkpoint=checkpoint_snapshot, max_tool_calls=limit,
+                    ),
+                    timeout=timeout_s,
+                )
+                await adapter.close()
+                tool_count = loop_result.tool_calls
+                result = {
+                    "ok": True, "content": loop_result.content,
+                    "usage": loop_result.usage, "error": None,
+                }
+            else:
+                handle = await adapter.execute(
+                    AgentTask(
+                        instruction=instruction, input=context,
+                        task_id=f"{task.id}:{step['id']}",
+                    ),
+                    system_prompt=system_prompt,
+                )
+                result = await asyncio.wait_for(collect_final(adapter, handle), timeout=timeout_s)
+                await adapter.close()
         except asyncio.TimeoutError as exc:
             await adapter.close()
             async with lock:
@@ -394,7 +476,10 @@ async def _run_step(
                 f"步骤 {step['id']} 超过 {timeout_s}s 未完成，已终止",
                 504, {"step_id": step["id"], "timeout_s": timeout_s},
             ) from exc
-        await adapter.close()
+        except RunSuspended:
+            await adapter.close()
+            _suspend_for_tool_approval(session, task, run, checkpoint_snapshot)
+            raise
         ended = _now()
 
         usage = result.get("usage")
@@ -403,11 +488,14 @@ async def _run_step(
             "system_prompt": system_prompt[:4000],
             "mode": bundle.mode,
             "context_chars": len(context),
+            "tool_calls": tool_count,
+            "tools_available": tools,
         }
         output = {
             "content": (result["content"] or "")[:8000],
             "mode": bundle.mode,
             "model": bundle.model,
+            "tool_calls": tool_count,
         }
 
         async with lock:
@@ -421,7 +509,7 @@ async def _run_step(
                 output_payload=output,
                 state="succeeded" if result["ok"] else "failed",
                 error=result["error"],
-                external_ref=handle.external_ref,
+                external_ref=handle.external_ref if handle is not None else "",
                 step_id=step["id"], prompt_version=prompt_version,
                 model_connection_id=bundle.connection_id,
                 started_at=started, ended_at=ended,
@@ -483,6 +571,9 @@ async def _run_step(
             checkpoint["last_agent_run_id"] = agent_run.id
             fresh_run.checkpoint = checkpoint
             fresh_run.heartbeat_at = ended
+            if tool_count:
+                fresh_run.tool_calls_count = (fresh_run.tool_calls_count or 0) + tool_count
+                task.tool_calls_count = (task.tool_calls_count or 0) + tool_count
             session.commit()
 
         if not result["ok"]:

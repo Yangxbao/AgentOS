@@ -37,6 +37,7 @@ from apps.api.routers import (  # noqa: E402
     positions,
     prompts,
     tasks,
+    tools,
 )
 from apps.api.security.local_guard import LocalGuardMiddleware, config_from_env  # noqa: E402
 from packages.execution.runner import TaskRunner  # noqa: E402
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
         tasks.router,
         approvals.router,
         monitor.router,
+        tools.router,
     ):
         app.include_router(router, prefix="/api/v1")
     return app

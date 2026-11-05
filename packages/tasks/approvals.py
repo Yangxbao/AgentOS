@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from packages.organization.common import iso_utc
-from packages.persistence.models import Employee, Task, TaskApproval, TaskRun
+from packages.persistence.models import Employee, Task, TaskApproval, TaskRun, ToolCall
 from packages.shared.errors import DomainError
 from packages.shared.types import new_id
 
@@ -41,6 +41,7 @@ def serialize_approval(row: TaskApproval) -> dict:
         "decided_by": row.decided_by,
         "comment": row.comment,
         "rewind_step_id": row.rewind_step_id,
+        "tool_call_id": row.tool_call_id,
         "context": row.context,
         "created_at": iso_utc(row.created_at),
         "decided_at": iso_utc(row.decided_at),
@@ -154,9 +155,13 @@ def decide(
         )
     task = _task(session, owner_id, row.task_id)
 
+    tool_call = session.get(ToolCall, row.tool_call_id) if row.tool_call_id else None
     if row.reviewer_employee_id:
         reviewer = session.get(Employee, row.reviewer_employee_id)
-        if reviewer is not None and reviewer.id == task.assignee_employee_id:
+        executor_id = (
+            tool_call.employee_id if tool_call is not None else task.assignee_employee_id
+        )
+        if reviewer is not None and reviewer.id == executor_id:
             raise DomainError("APPROVAL_REVIEWER_INVALID", "审批人不能是执行人本人", 409)
 
     now = datetime.now(timezone.utc)
@@ -166,7 +171,23 @@ def decide(
     row.comment = comment
 
     if decision == "approve":
-        emit(session, task, row.task_run_id, "approval.approved", {"approval_id": row.id})
+        emit(session, task, row.task_run_id, "approval.approved", {
+            "approval_id": row.id, "gate": row.gate, "tool_call_id": row.tool_call_id,
+        })
+        if row.gate == "tool_call" and tool_call is not None:
+            tool_call.status = "approved"
+            tool_call.ended_at = None
+            emit(session, task, row.task_run_id, "tool.approved", {
+                "tool_call_id": tool_call.id, "tool": tool_call.tool_name,
+            })
+            from .service import enqueue_run
+
+            run = enqueue_run(
+                session, owner_id, task.id, trigger="approval", approved_by=actor_id
+            )
+            return {
+                "approval": serialize_approval(row), "state": task.state, "run_id": run.id,
+            }
         if row.gate == "after_run":
             task.state = "succeeded"
             task.ended_at = now
@@ -187,6 +208,33 @@ def decide(
             session, owner_id, task.id, trigger="approval", approved_by=actor_id
         )
         return {"approval": serialize_approval(row), "state": task.state, "run_id": run.id}
+
+    # 工具调用被驳回：结束该调用，任务失败（可重试），不进入返工回退
+    if row.gate == "tool_call" and tool_call is not None:
+        tool_call.status = "denied"
+        tool_call.error_code = "TOOL_APPROVAL_REJECTED"
+        tool_call.error_message = (comment or "人工驳回该工具调用")[:500]
+        tool_call.ended_at = now
+        task.state = "failed"
+        task.ended_at = now
+        task.result = {
+            **(task.result or {}),
+            "error": {"code": "TOOL_APPROVAL_REJECTED", "message": comment or "人工驳回该工具调用"},
+        }
+        task.version = (task.version or 1) + 1
+        run = session.get(TaskRun, row.task_run_id) if row.task_run_id else None
+        if run is not None:
+            run.state = "failed"
+            run.error = "TOOL_APPROVAL_REJECTED: 人工驳回工具调用"
+            run.ended_at = now
+        emit(session, task, row.task_run_id, "tool.approval_rejected", {
+            "approval_id": row.id, "tool_call_id": tool_call.id,
+            "tool": tool_call.tool_name, "comment": comment,
+        })
+        session.commit()
+        return {
+            "approval": serialize_approval(row), "state": task.state, "run_id": None,
+        }
 
     # 驳回 / 要求修改
     if task.rework_count >= task.max_rework:

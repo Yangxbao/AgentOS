@@ -13,6 +13,8 @@ import MonitorPage from './pages/MonitorPage'
 import OrgPage from './pages/OrgPage'
 import TaskDetailPage from './pages/TaskDetailPage'
 import TasksPage from './pages/TasksPage'
+import ToolPolicyPage from './pages/ToolPolicyPage'
+import WorkspacesPage from './pages/WorkspacesPage'
 
 function HealthBadge() {
   const health = useQuery({
@@ -59,6 +61,8 @@ function Shell() {
           <NavItem to="/org">组织架构</NavItem>
           <NavItem to="/employees">AI 员工</NavItem>
           <NavItem to="/assignments">派工预览</NavItem>
+          <NavItem to="/settings/workspaces">工作区</NavItem>
+          <NavItem to="/settings/tools">工具策略</NavItem>
           <NavItem to="/settings/models">模型连接</NavItem>
           <NavItem to="/settings/import-export">导入导出</NavItem>
           <NavItem to="/settings/audit">审计</NavItem>
@@ -78,6 +82,8 @@ function Shell() {
           <Route path="/org" element={<OrgPage />} />
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/employees/:id" element={<EmployeeDetailPage />} />
+          <Route path="/settings/workspaces" element={<WorkspacesPage />} />
+          <Route path="/settings/tools" element={<ToolPolicyPage />} />
           <Route path="/settings/models" element={<ModelConnectionsPage />} />
           <Route path="/assignments" element={<AssignmentPage />} />
           <Route path="/settings/import-export" element={<ImportExportPage />} />

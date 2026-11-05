@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 import time
 from typing import Any, AsyncIterator, Optional
 
@@ -23,6 +25,53 @@ from packages.shared.types import (
 
 MARK_FAIL = "[fail]"
 MARK_SLOW = "[slow:"
+MARK_TOOL = "[tool:"
+
+_NAME_RE = re.compile(r"[a-zA-Z0-9_.]+")
+
+
+def parse_tool_markers(text: str) -> list[dict]:
+    """解析 Mock 指令里的 `[tool:<name> {json}]` 标记。
+
+    仅 Mock 执行体使用：让"模型请求工具"在离线环境可确定性复现。
+    """
+    markers: list[dict] = []
+    index = 0
+    while True:
+        start = text.find(MARK_TOOL, index)
+        if start < 0:
+            break
+        pos = start + len(MARK_TOOL)
+        match = _NAME_RE.match(text[pos:])
+        if not match:
+            index = pos
+            continue
+        name = match.group(0)
+        pos += len(name)
+        while pos < len(text) and text[pos] in " \t\n":
+            pos += 1
+        if pos >= len(text) or text[pos] != "{":
+            index = pos
+            continue
+        depth, end = 0, None
+        for cursor in range(pos, len(text)):
+            if text[cursor] == "{":
+                depth += 1
+            elif text[cursor] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = cursor
+                    break
+        if end is None:
+            index = pos
+            continue
+        try:
+            args = json.loads(text[pos:end + 1])
+        except json.JSONDecodeError:
+            args = {}
+        markers.append({"name": name, "args": args})
+        index = end + 1
+    return markers
 
 
 class MockAdapter:
@@ -49,6 +98,7 @@ class MockAdapter:
 
     async def execute(self, task: AgentTask, system_prompt: str = "") -> ExecutionHandle:
         handle = ExecutionHandle(adapter_type=self.adapter_type, external_ref="mock")
+        self.prepare(task.instruction)
         self._handles[handle.id] = {
             "instruction": task.instruction,
             "input": task.input,
@@ -56,6 +106,61 @@ class MockAdapter:
             "started": time.perf_counter(),
         }
         return handle
+
+    def prepare(self, instruction: str) -> None:
+        self._instruction = instruction
+        self._markers = parse_tool_markers(instruction)
+
+    async def chat(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+    ) -> dict:
+        """确定性工具对话：按指令里的标记顺序逐个返回 tool_call，再返回最终文本。
+
+        未传入 tools 时不会"假装"模型看到了工具——标记仍然只按指令顺序产出，
+        由工具循环的授权集合决定是否真的能执行。
+        """
+        done = sum(1 for item in messages if item.get("role") == "tool")
+        markers = getattr(self, "_markers", [])
+        prompt_tokens = max(1, len(json.dumps(messages, ensure_ascii=False)) // 4)
+        if done < len(markers):
+            marker = markers[done]
+            call_id = f"mockcall_{done + 1}"
+            usage = UsageReport(
+                model=self.model, prompt_tokens=prompt_tokens,
+                completion_tokens=8, cost_usd=0.0, latency_ms=0,
+            )
+            message = {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": call_id, "type": "function",
+                    "function": {
+                        "name": marker["name"],
+                        "arguments": json.dumps(marker["args"], ensure_ascii=False),
+                    },
+                }],
+            }
+            return {
+                "content": "", "tool_calls": message["tool_calls"],
+                "usage": usage, "model": self.model, "message": message,
+            }
+
+        instruction = getattr(self, "_instruction", "")
+        text = f"[mock] {self.label} 完成：{instruction.strip().splitlines()[0][:80] if instruction.strip() else ''}"
+        if markers:
+            text += f"\n（执行工具 {len(markers)} 次）"
+        usage = UsageReport(
+            model=self.model, prompt_tokens=prompt_tokens,
+            completion_tokens=max(1, len(text) // 4), cost_usd=0.0, latency_ms=0,
+        )
+        return {
+            "content": text, "tool_calls": [], "usage": usage,
+            "model": self.model,
+            "message": {"role": "assistant", "content": text},
+        }
 
     async def stream_events(self, handle: ExecutionHandle) -> AsyncIterator[AgentEvent]:
         state = self._handles.get(handle.id)

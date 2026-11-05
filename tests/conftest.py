@@ -154,3 +154,57 @@ def seeded_task(db_url) -> str:
         session.add(Task(id=task_id, title="B1 夹具任务", state="draft"))
         session.commit()
     return task_id
+
+
+TOOL_NAMES = [
+    "fs.list_dir", "fs.read_file", "fs.stat",
+    "fs.write_file", "fs.delete_file", "http.request",
+]
+
+
+@pytest.fixture
+def tools_on(monkeypatch):
+    """显式打开全局工具开关：默认是 off（生产默认不加权限）。"""
+    monkeypatch.setenv("AGENTOS_TOOL_EXECUTION", "on")
+    return True
+
+
+@pytest.fixture
+def workspace_root(tmp_path):
+    root = tmp_path / "workspace"
+    (root / "notes").mkdir(parents=True)
+    (root / "docs").mkdir(parents=True)
+    (root / "notes" / "a.txt").write_text("hello world", encoding="utf-8")
+    return root
+
+
+@pytest.fixture
+def seeded_workspace(write_client, seeded_company, workspace_root):
+    resp = write_client.post(
+        f"/api/v1/companies/{seeded_company['id']}/workspaces",
+        json={"name": "测试工作区", "root_path": str(workspace_root), "mode": "read_write"},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+@pytest.fixture
+def tool_employee(write_client, seeded_team, seeded_workspace):
+    """有工具白名单 + 工作区写授权的员工（默认 medium 风险上限）。"""
+    company_id = seeded_team["company"]["id"]
+    resp = write_client.post(
+        f"/api/v1/companies/{company_id}/employees",
+        json={
+            "name": "工具员工", "title": "执行工程师",
+            "primary_model_id": seeded_team["connection"]["id"],
+            "tools_allowed": list(TOOL_NAMES),
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    employee = resp.json()
+    grant = write_client.post(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/grants",
+        json={"employee_id": employee["id"], "access": "write"},
+    )
+    assert grant.status_code == 201, grant.text
+    return employee

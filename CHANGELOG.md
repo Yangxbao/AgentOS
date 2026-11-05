@@ -2,6 +2,35 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased] - M3-A 工具执行层
+
+### Added
+- **工作区与授权**：`workspace` / `employee_workspace_grant`；目录级 read/write；撤权立即生效；归档不删磁盘文件；系统目录/用户主目录/盘符根拒绝
+- **工具注册中心**：`fs.list_dir`、`fs.read_file`、`fs.stat`、`fs.write_file`、`fs.delete_file`、`http.request`、`shell.run`（禁用态）；参数 Schema、风险、超时、输出上限
+- **五层权限**：全局开关 → 公司策略/类别/工具白名单 → 员工 `tools_allowed` → 岗位/员工收窄 → 工作区授权；每层独立错误码
+- **路径安全**：`safe_resolve` 拒绝绝对路径/盘符/UNC/ADS/NUL/`..`/保留设备名，逐级检查 symlink 与 junction，敏感文件名单
+- **文件工具**：文本读取（256KB、UTF-8、密钥内容拒绝）、原子写入（create/overwrite/append、1MB）、单文件删除（返回 sha256）
+- **HTTP 工具**：域名白名单、DNS 后 IP 检查（回环/私网/链路本地/云元数据）、重定向逐跳校验、请求头白名单、2MB/超时限制、禁用系统代理
+- **工具循环**：只下发已授权 schema；最多 8 次；`TOOL_LOOP_EXCEEDED`；幂等键防重复副作用
+- **工具审批**：`gate=tool_call`，保存 messages/pending/call_index；批准后从同一调用恢复（不重新调模型）；驳回 → `TOOL_APPROVAL_REJECTED`
+- **审计与事件**：`tool_call` 全状态落库 + `audit_log` + `task_event`；参数/输出强制脱敏
+- **API M3-01..10**：工作区 CRUD/授权、工具目录、公司工具策略、员工工具权限诊断、任务工具调用列表与详情
+- **前端**：`/settings/workspaces`、`/settings/tools`、任务详情“工具调用”面板（含批准/驳回调用）
+- 迁移 `m3_a_tools`（3 张新表 + 3 个新列）
+- 测试：新增 171 个（路径 60 / 权限 23 / 文件 22 / HTTP 17 / 入口 14 / 循环 13 / Shell 9 / API 13）
+
+### Fixed
+- SQLite WAL 读快照导致 `cancel_requested/pause_requested` 不可见（M2 时序侥幸通过）
+- 步骤会话在模型调用期间持有写锁，阻塞取消/暂停请求
+- 工具连续调用复用同一条 `tool_call` 记录
+- 工具路径 `handle` 未定义导致执行完成后抛错
+- HTTP 4xx/5xx 被误判为执行失败（应为正常工具结果）
+
+### Security
+- `AGENTOS_TOOL_EXECUTION` 默认 **off**；即使开启仍需公司策略 + 员工白名单 + 工作区授权
+- Shell 永久禁用：无任何命令执行代码路径（AST 扫描证明），策略与 API 均拒绝开启
+- 已知限制：Windows TOCTOU 未彻底消除（见 `M3_MASTER_HANDOFF.md` §6.2）
+
 ## [Unreleased] - M2 任务闭环
 
 ### Added

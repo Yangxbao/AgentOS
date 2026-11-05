@@ -8,7 +8,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Optional, Protocol
 
-from packages.model_gateway import GatewayError, chat
+from packages.model_gateway import GatewayError
+from packages.model_gateway import chat as gateway_chat
 from packages.shared.types import (
     AgentEvent,
     AgentTask,
@@ -77,7 +78,7 @@ class LiteLLMAdapter:
 
     async def health_check(self) -> HealthStatus:
         try:
-            await chat(
+            await gateway_chat(
                 self.model,
                 [{"role": "user", "content": "ping，回复 ok 即可"}],
                 timeout=min(15.0, self.timeout),
@@ -119,7 +120,7 @@ class LiteLLMAdapter:
             return
         yield AgentEvent(type="started", payload={"model": self.model})
         try:
-            resp = await chat(
+            resp = await gateway_chat(
                 self.model,
                 state["messages"],
                 fallbacks=[self.fallback_model] if self.fallback_model else None,
@@ -138,6 +139,33 @@ class LiteLLMAdapter:
         yield AgentEvent(type="message", payload={"content": resp.content, "model": resp.model})
         yield AgentEvent(type="usage", usage=usage, payload=usage.to_dict())
         yield AgentEvent(type="completed", payload={"finish_reason": resp.raw_finish_reason})
+
+    async def chat(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+    ) -> dict:
+        """多轮对话（含工具调用）：M3 工具循环使用，不改变 M2 的 execute 语义。"""
+        resp = await gateway_chat(
+            self.model,
+            messages,
+            fallbacks=[self.fallback_model] if self.fallback_model else None,
+            timeout=self.timeout,
+            max_tokens=self.max_tokens,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            num_retries=self.max_retries,
+            tools=tools or None,
+            tool_choice=tool_choice,
+        )
+        return {
+            "content": resp.content,
+            "tool_calls": resp.tool_calls or [],
+            "usage": resp.usage,
+            "model": resp.model,
+            "message": resp.raw_message or {"role": "assistant", "content": resp.content},
+        }
 
     async def interrupt(self, handle: ExecutionHandle, reason: str) -> None:
         raise CapabilityNotSupported("LiteLLM API 调用不可中断，仅可取消（见能力声明）")

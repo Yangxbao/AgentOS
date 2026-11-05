@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { tasksApi, type PlanStep } from '../api/tasks'
+import { toolsApi } from '../api/tools'
 import { StateBadge } from './TasksPage'
 
 const ACTIVE_STATES = new Set(['queued', 'running', 'paused', 'awaiting_approval', 'rework_required'])
@@ -44,6 +45,7 @@ export default function TaskDetailPage() {
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['task', id] })
     queryClient.invalidateQueries({ queryKey: ['timeline', id] })
+    queryClient.invalidateQueries({ queryKey: ['toolCalls', id] })
     queryClient.invalidateQueries({ queryKey: ['tasks'] })
   }
 
@@ -91,6 +93,14 @@ export default function TaskDetailPage() {
     queryKey: ['timeline', id],
     queryFn: () => tasksApi.timeline(id),
     enabled: Boolean(id),
+    refetchInterval: 3000,
+  })
+
+  const toolCalls = useQuery({
+    queryKey: ['toolCalls', id],
+    queryFn: () => toolsApi.taskToolCalls(id),
+    enabled: Boolean(id),
+    // 与时间线一致：工具调用可能由后台 worker 在其他页面触发，固定轮询最稳
     refetchInterval: 3000,
   })
 
@@ -152,7 +162,7 @@ export default function TaskDetailPage() {
           {data.pending_approvals.map((approval) => (
             <div key={approval.id} className="mt-3 space-y-2 text-sm">
               <div className="text-slate-300">
-                关卡：{approval.gate === 'before_run' ? '执行前' : '交付后'} · 发起人 {approval.requested_by}
+                关卡：{approval.gate === 'before_run' ? '执行前' : approval.gate === 'tool_call' ? '工具调用' : '交付后'} · 发起人 {approval.requested_by}
                 {approval.reviewer_employee_id && ` · 指定审查员工 ${data.employees[approval.reviewer_employee_id]?.name ?? approval.reviewer_employee_id}`}
               </div>
               <input className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2"
@@ -177,6 +187,105 @@ export default function TaskDetailPage() {
           ))}
         </section>
       )}
+
+      <section className="rounded border border-slate-800 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-sm font-medium">工具调用</h2>
+          <span className="text-xs text-slate-500">
+            {toolCalls.data?.total ?? 0} 次
+            {(toolCalls.data?.items ?? []).some((item) => ['high', 'critical'].includes(item.risk_level)) && (
+              <span className="ml-2 rounded bg-red-900 px-1.5 py-0.5 text-red-300">含高风险调用</span>
+            )}
+          </span>
+          <span className="ml-auto text-xs text-slate-500">被拒绝的调用同样留痕，不隐藏</span>
+        </div>
+        {toolCalls.isLoading && <p className="mt-2 text-xs text-slate-500">加载中…</p>}
+        {toolCalls.data && toolCalls.data.total === 0 && (
+          <p className="mt-2 text-xs text-slate-500">
+            本任务没有工具调用（员工未获授权工具、全局开关关闭，或模型未请求工具）。
+          </p>
+        )}
+        {toolCalls.data && toolCalls.data.total > 0 && (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full table-fixed text-left text-xs">
+              <thead className="text-slate-500">
+                <tr>
+                  <th className="w-28 py-1">工具</th>
+                  <th className="w-24">状态</th>
+                  <th className="w-16">风险</th>
+                  <th className="w-16">步骤</th>
+                  <th className="w-56">参数摘要</th>
+                  <th className="w-16">耗时</th>
+                  <th className="w-44">结果 / 错误</th>
+                  <th className="w-28">审批</th>
+                </tr>
+              </thead>
+              <tbody className="text-slate-300">
+                {toolCalls.data.items.map((call) => {
+                  const risky = ['high', 'critical'].includes(call.risk_level)
+                  return (
+                    <tr key={call.id}
+                        className={`border-t border-slate-800 align-top ${risky ? 'bg-red-950/20' : ''}`}>
+                      <td className="py-1 font-mono">{call.tool_name}</td>
+                      <td>
+                        <span className={`rounded px-1.5 py-0.5 ${
+                          call.status === 'succeeded' ? 'bg-emerald-900 text-emerald-300'
+                            : call.status === 'denied' ? 'bg-red-900 text-red-300'
+                            : call.status === 'awaiting_approval' ? 'bg-purple-900 text-purple-300'
+                            : call.status === 'timeout' ? 'bg-amber-900 text-amber-300'
+                            : 'bg-slate-800 text-slate-300'
+                        }`}>
+                          {call.status}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`rounded px-1.5 py-0.5 ${
+                          risky ? 'bg-red-900 text-red-300' : 'bg-slate-800 text-slate-300'
+                        }`}>{call.risk_level}</span>
+                      </td>
+                      <td>{call.step_id || '—'} / #{call.call_index}</td>
+                      <td className="break-all font-mono text-[11px] text-slate-400"
+                          title={JSON.stringify(call.args_summary)}>
+                        {JSON.stringify(call.args_summary).slice(0, 90)}
+                        {JSON.stringify(call.args_summary).length > 90 ? '…' : ''}
+                      </td>
+                      <td>{call.duration_ms}ms</td>
+                      <td className="break-all">
+                        {call.error_code
+                          ? <span className="text-red-300">{call.error_code}：{call.error_message}</span>
+                          : (
+                            <span className="text-slate-400" title={JSON.stringify(call.output_summary)}>
+                              {JSON.stringify(call.output_summary).slice(0, 110)}
+                              {JSON.stringify(call.output_summary).length > 110 ? '…' : ''}
+                            </span>
+                          )}
+                      </td>
+                      <td>
+                        {call.approval_status === 'pending' && call.approval_id ? (
+                          <span className="flex gap-1">
+                            <button className="rounded bg-emerald-600 px-2 py-0.5 text-white"
+                                    data-testid={`tool-approve-${call.id}`}
+                                    onClick={() => decide.mutate({ approvalId: call.approval_id as string, decision: 'approve' })}>
+                              批准调用
+                            </button>
+                            <button className="rounded bg-red-700 px-2 py-0.5 text-white"
+                                    data-testid={`tool-reject-${call.id}`}
+                                    onClick={() => decide.mutate({ approvalId: call.approval_id as string, decision: 'reject' })}>
+                              驳回调用
+                            </button>
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">{call.approval_status ?? '—'}</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="rounded border border-slate-800 p-4">
         <div className="flex items-center gap-3">
@@ -327,6 +436,8 @@ export default function TaskDetailPage() {
                 {item.kind === 'agent_run' && `${item.step_id} · ${item.employee_name} · ${item.model}`}
                 {item.kind === 'handoff' && `交接 → ${item.step_id}：${item.summary ?? ''}`}
                 {item.kind === 'approval' && `${item.status ?? ''} ${item.comment ?? ''}`}
+                {item.kind === 'tool_call' && `${item.tool ?? ''} · ${item.status ?? ''}${item.error_code ? ` · ${item.error_code}` : ''}`}
+                {item.kind === 'tool_call' && `${item.tool ?? ''} · ${item.status ?? ''}${item.error_code ? ` · ${item.error_code}` : ''}`}
                 {item.kind === 'event' && JSON.stringify(item.payload ?? {}).slice(0, 160)}
               </span>
             </li>

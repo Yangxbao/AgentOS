@@ -16,6 +16,7 @@ from packages.persistence.models import (
     TaskApproval,
     TaskEvent,
     TaskRun,
+    ToolCall,
     UsageRecord,
 )
 from packages.shared.errors import DomainError
@@ -141,6 +142,20 @@ def task_timeline(session: Session, owner_id: str, task_id: str) -> list[dict]:
             "kind": "approval", "type": f"approval.{approval.status}", "at": iso_utc(approval.created_at),
             "approval_id": approval.id, "gate": approval.gate, "status": approval.status,
             "decided_by": approval.decided_by, "comment": approval.comment,
+        }))
+    for call in session.execute(
+        select(ToolCall).where(ToolCall.task_id == task_id)
+    ).scalars().all():
+        items.append((ts(call.created_at), {
+            "kind": "tool_call", "type": f"tool.{call.status}",
+            "at": iso_utc(call.ended_at or call.created_at),
+            "tool_call_id": call.id, "tool": call.tool_name,
+            "risk": call.risk_level, "status": call.status,
+            "step_id": call.step_id, "employee_id": call.employee_id,
+            "error_code": call.error_code, "duration_ms": call.duration_ms,
+            "approval_id": call.approval_id,
+            "summary": (call.output_summary or {}).get("path")
+            or (call.output_summary or {}).get("url") or "",
         }))
     for handoff in session.execute(
         select(AgentHandoff).where(AgentHandoff.task_id == task_id)

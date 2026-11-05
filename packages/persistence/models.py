@@ -65,6 +65,7 @@ class Task(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    tool_calls_count: Mapped[int] = mapped_column(Integer, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
@@ -98,6 +99,7 @@ class TaskRun(Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resumed_from_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     approved_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tool_calls_count: Mapped[int] = mapped_column(Integer, default=0)
 
     __table_args__ = (
         # 防重复执行：同一任务同时最多一条活跃 run（SQLite/PostgreSQL 部分索引）
@@ -390,6 +392,7 @@ class TaskApproval(Base):
     decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     comment: Mapped[str] = mapped_column(Text, default="")
     rewind_step_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    tool_call_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     context: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -410,6 +413,89 @@ class AgentHandoff(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class Workspace(Base):
+    """工作区（M3-A）：Agent 文件工具的唯一边界，根目录必须是已存在的绝对路径。"""
+
+    __tablename__ = "workspace"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    company_id: Mapped[str] = mapped_column(ForeignKey("company.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    slug: Mapped[str] = mapped_column(String(64))
+    root_path: Mapped[str] = mapped_column(String(512))
+    mode: Mapped[str] = mapped_column(String(16), default="read_write")  # read_only|read_write
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)  # active|archived
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(64), default="local")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", name="uq_workspace_company_name"),
+        UniqueConstraint("company_id", "slug", name="uq_workspace_company_slug"),
+    )
+
+
+class EmployeeWorkspaceGrant(Base):
+    """工作区授权（M3-A）：目录级 read/write，撤权立即生效（每次调用现查）。"""
+
+    __tablename__ = "employee_workspace_grant"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    employee_id: Mapped[str] = mapped_column(ForeignKey("employee.id"), index=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspace.id"), index=True)
+    access: Mapped[str] = mapped_column(String(16), default="read")  # read|write
+    granted_by: Mapped[str] = mapped_column(String(64), default="local")
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("employee_id", "workspace_id", name="uq_grant_employee_workspace"),
+    )
+
+
+class ToolCall(Base):
+    """工具调用记录（M3-A）：每次调用一条，成功/失败/拒绝/超时/挂起都留痕。"""
+
+    __tablename__ = "tool_call"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    company_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    task_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    task_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    agent_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    employee_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    step_id: Mapped[str] = mapped_column(String(32), default="")
+    call_index: Mapped[int] = mapped_column(Integer, default=0)
+    tool_name: Mapped[str] = mapped_column(String(64), index=True)
+    category: Mapped[str] = mapped_column(String(24), default="")
+    risk_level: Mapped[str] = mapped_column(String(16), default="low")
+    status: Mapped[str] = mapped_column(String(24), default="requested", index=True)
+    args_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    args_hash: Mapped[str] = mapped_column(String(64), default="")
+    idempotency_key: Mapped[str] = mapped_column(String(80), default="", index=True)
+    workspace_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resolved_path: Mapped[str] = mapped_column(String(512), default="")
+    output_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    output_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_code: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    approval_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_tool_call_task_step", "task_id", "step_id"),
+    )
 
 
 class UsageRecord(Base):

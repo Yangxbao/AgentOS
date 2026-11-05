@@ -120,10 +120,58 @@ def seed() -> dict:
         {"id": "s2", "employee_id": qa["id"], "instruction": "[slow:1200] 二", "depends_on": ["s1"]},
         {"id": "s3", "employee_id": manager["id"], "instruction": "[slow:1200] 三", "depends_on": ["s2"]},
     ]})
+    # ---------------- M3-A 工具执行层 ----------------
+    ws_root = ROOT / "data" / "browser_acceptance_ws"
+    (ws_root / "notes").mkdir(parents=True, exist_ok=True)
+    (ws_root / "notes" / "a.txt").write_text("hello", encoding="utf-8")
+    (ws_root / "notes" / "b.txt").write_text("world", encoding="utf-8")
+    workspace = api("POST", f"/api/v1/companies/{company['id']}/workspaces", {
+        "name": "验收工作区", "root_path": ws_root.as_posix(), "mode": "read_write",
+    })
+    tool_employee = api("POST", f"/api/v1/companies/{company['id']}/employees", {
+        "name": "工具乙", "title": "执行工程师",
+        "primary_model_id": connection["id"],
+        "tools_allowed": [
+            "fs.list_dir", "fs.read_file", "fs.stat", "fs.write_file", "fs.delete_file",
+        ],
+    })
+    api("POST", f"/api/v1/workspaces/{workspace['id']}/grants", {
+        "employee_id": tool_employee["id"], "access": "write",
+    })
+    ws_id = workspace["id"]
+
+    def tool_task(title: str, instruction: str) -> dict:
+        return api("POST", f"/api/v1/companies/{company['id']}/tasks", {
+            "title": title, "objective": "工具验收", "instruction": instruction,
+            "assignee_employee_id": tool_employee["id"], "execution_mode": "mock",
+        })
+
+    tool_ok = tool_task(
+        "浏览器验收-工具成功",
+        f'[tool:fs.list_dir {{"workspace_id":"{ws_id}","path":"notes"}}] 列目录',
+    )
+    tool_denied = tool_task(
+        "浏览器验收-工具拒绝",
+        f'[tool:fs.delete_file {{"workspace_id":"{ws_id}","path":"notes/a.txt"}}] 删除文件',
+    )
+    tool_approve = tool_task(
+        "浏览器验收-工具审批",
+        f'[tool:fs.write_file {{"workspace_id":"{ws_id}","path":"notes/a.txt",'
+        f'"content":"APPROVED","mode":"overwrite"}}] 覆盖文件',
+    )
+    tool_reject = tool_task(
+        "浏览器验收-工具驳回",
+        f'[tool:fs.write_file {{"workspace_id":"{ws_id}","path":"notes/b.txt",'
+        f'"content":"REJECTED","mode":"overwrite"}}] 覆盖文件',
+    )
+
     return {
         "company": company, "connection": connection,
         "manager": manager, "employee": dev, "qa": qa,
         "draft": draft, "approval": approval, "multi": multi, "slow": slow,
+        "workspace": workspace, "tool_employee": tool_employee,
+        "tool_ok": tool_ok, "tool_denied": tool_denied,
+        "tool_approve": tool_approve, "tool_reject": tool_reject,
     }
 
 
@@ -238,6 +286,46 @@ class CDP:
         result = await self.eval(js)
         if result != "ok":
             raise AssertionError(f"填写输入框失败 {placeholder_prefix}: {result}")
+
+    async def click_selector(self, selector: str) -> None:
+        js = (
+            f"(() => {{ const el = document.querySelector({json.dumps(selector)});"
+            " if (!el) return false; el.click(); return true; })()"
+        )
+        if not await self.eval(js):
+            raise AssertionError(f"找不到元素：{selector}")
+
+    async def set_selector(self, selector: str, value: str) -> None:
+        js = f"""(() => {{
+          const el = document.querySelector({json.dumps(selector)});
+          if (!el) return 'missing';
+          const proto = el.tagName === 'TEXTAREA'
+            ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+          setter.call(el, {json.dumps(value)});
+          el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+          return 'ok';
+        }})()"""
+        if await self.eval(js) != "ok":
+            raise AssertionError(f"设置输入失败：{selector}")
+
+    async def set_select(self, selector: str, value: str) -> None:
+        js = f"""(() => {{
+          const el = document.querySelector({json.dumps(selector)});
+          if (!el) return 'missing';
+          const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLSelectElement.prototype, 'value').set;
+          setter.call(el, {json.dumps(value)});
+          el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+          return 'ok';
+        }})()"""
+        if await self.eval(js) != "ok":
+            raise AssertionError(f"设置下拉失败：{selector}")
+
+    async def wait_selector(self, selector: str, timeout: float, desc: str) -> None:
+        await self.wait(
+            f"Boolean(document.querySelector({json.dumps(selector)}))", timeout, desc
+        )
 
     async def screenshot(self, name: str) -> str:
         SHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -368,6 +456,118 @@ async def run_checks(cdp: CDP, ctx: dict) -> None:
     await cdp.screenshot("14_org")
 
 
+
+    # ---------------- M3-A：工具执行层 ----------------
+    await cdp.goto(f"{WEB}/settings/workspaces")
+    await cdp.wait_text("验收工作区", 20)
+    ws_text = await cdp.text()
+    check(
+        "M3-1 工作区页渲染（含根路径）",
+        "验收工作区" in ws_text and "browser_acceptance_ws" in ws_text,
+    )
+    await cdp.screenshot("m3_01_workspaces")
+
+    await cdp.set_selector('[data-testid="ws-name"]', "浏览器新建工作区")
+    await cdp.click_selector('[data-testid="ws-create"]')
+    await cdp.wait_text("浏览器新建工作区", 20)
+    check("M3-2 浏览器创建新工作区", "浏览器新建工作区" in await cdp.text())
+
+    created = [
+        item for item in api("GET", f"/api/v1/companies/{ctx['company']['id']}/workspaces")
+        if item["name"] == "浏览器新建工作区"
+    ]
+    assert created, "新建的工作区未出现在 API 列表"
+    created_id = created[0]["id"]
+    await cdp.set_select(
+        f'[data-testid="ws-grant-employee-{created_id}"]', ctx["tool_employee"]["id"]
+    )
+    await cdp.set_select(f'[data-testid="ws-grant-access-{created_id}"]', "write")
+    await cdp.click_selector(f'[data-testid="ws-grant-submit-{created_id}"]')
+    await cdp.wait_text("授权已保存", 20)
+    check("M3-3 浏览器授权员工（读写）", "工具乙" in await cdp.text())
+    await cdp.screenshot("m3_02_workspace_grant")
+
+    await cdp.click_selector(
+        f'[data-testid="ws-revoke-{created_id}-{ctx["tool_employee"]["id"]}"]'
+    )
+    await cdp.wait_text("授权已撤销（立即生效）", 20)
+    check("M3-4 浏览器撤销授权", "授权已撤销" in await cdp.text())
+
+    await cdp.goto(f"{WEB}/settings/tools")
+    await cdp.wait_text("工具策略")
+    policy_text = await cdp.text()
+    check(
+        "M3-5 工具策略页与工具列表",
+        "fs.read_file" in policy_text and "http.request" in policy_text
+        and "工具白名单" in policy_text,
+    )
+    check(
+        "M3-6 Shell 永久禁用说明",
+        "永久禁用" in policy_text and "shell.run" in policy_text,
+    )
+    await cdp.screenshot("m3_03_tool_policy")
+
+    # 成功调用
+    await cdp.goto(f"{WEB}/tasks/{ctx['tool_ok']['id']}")
+    await cdp.wait_text("工具调用")
+    await cdp.click("执行")
+    await cdp.wait_text("已完成", 30)
+    ok_text = await cdp.text()
+    ok_calls = api("GET", f"/api/v1/tasks/{ctx['tool_ok']['id']}/tool-calls")
+    check(
+        "M3-7 工具调用面板显示成功记录",
+        "fs.list_dir" in ok_text and "succeeded" in ok_text
+        and ok_calls["items"] and ok_calls["items"][0]["status"] == "succeeded",
+        str(ok_calls["items"])[:200],
+    )
+    check("M3-8 时间线包含工具事件", "tool.succeeded" in ok_text)
+    await cdp.screenshot("m3_04_tool_call_panel")
+
+    await cdp.goto(f"{WEB}/tasks/{ctx['tool_ok']['id']}")
+    await cdp.wait_text("fs.list_dir", 20)
+    check("M3-9 刷新后工具记录仍存在", "fs.list_dir" in await cdp.text())
+
+    # 拒绝记录
+    await cdp.goto(f"{WEB}/tasks/{ctx['tool_denied']['id']}")
+    await cdp.wait_text("工具调用")
+    await cdp.click("执行")
+    await cdp.wait_text("已完成", 30)
+    denied_text = await cdp.text()
+    denied_calls = api("GET", f"/api/v1/tasks/{ctx['tool_denied']['id']}/tool-calls")
+    check(
+        "M3-10 被拒绝的工具调用同样展示",
+        "TOOL_NOT_GRANTED" in denied_text and "denied" in denied_text
+        and denied_calls["items"] and denied_calls["items"][0]["status"] == "denied",
+        str(denied_calls["items"])[:200],
+    )
+    await cdp.screenshot("m3_05_tool_denied")
+
+    # 审批 → 批准
+    await cdp.goto(f"{WEB}/tasks/{ctx['tool_approve']['id']}")
+    await cdp.wait_text("执行计划")
+    await cdp.click("执行")
+    await cdp.wait_text("批准调用", 30)
+    check("M3-11 工具调用进入待审批", "批准调用" in await cdp.text())
+    await cdp.screenshot("m3_06_tool_approval")
+    await cdp.click("批准调用")
+    await cdp.wait_text("已完成", 30)
+    check("M3-12 批准后恢复并完成", "已完成" in await cdp.text())
+    await cdp.screenshot("m3_07_tool_approved")
+
+    # 驳回
+    await cdp.goto(f"{WEB}/tasks/{ctx['tool_reject']['id']}")
+    await cdp.wait_text("执行计划")
+    await cdp.click("执行")
+    await cdp.wait_text("驳回调用", 30)
+    await cdp.click("驳回调用")
+    await cdp.wait_text("失败", 30)
+    check(
+        "M3-13 驳回工具调用后任务失败",
+        "TOOL_APPROVAL_REJECTED" in await cdp.text(),
+    )
+    await cdp.screenshot("m3_08_tool_rejected")
+
+
 def find_edge() -> Path:
     for path in EDGE_CANDIDATES:
         if path.exists():
@@ -403,6 +603,7 @@ def main() -> int:
         if path.exists():
             path.unlink()
     shutil.rmtree(PROMPTS_DIR, ignore_errors=True)
+    shutil.rmtree(ROOT / "data" / "browser_acceptance_ws", ignore_errors=True)
     shutil.rmtree(SHOT_DIR, ignore_errors=True)
     SHOT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -412,6 +613,7 @@ def main() -> int:
         "AGENTOS_PROMPTS_ROOT": PROMPTS_DIR.as_posix(),
         "AGENTOS_MODEL_MODE": "mock",
         "BROWSER_TEST_KEY": "browser-secret",
+        "AGENTOS_TOOL_EXECUTION": "on",
     })
     api_proc = subprocess.Popen(
         [sys.executable, str(ROOT / "scripts" / "run_api.py"), "--port", "8000"],
@@ -449,9 +651,11 @@ def main() -> int:
 
     report = ROOT / "docs" / "testing" / "m3_browser_acceptance.txt"
     lines = [
-        "AgentOS M3-0 浏览器验收（Microsoft Edge headless + CDP，未安装新工具）",
+        "AgentOS M3 浏览器验收（Microsoft Edge headless + CDP，未安装新工具）",
         f"时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
-        "覆盖：任务列表/表单创建/单Agent执行/审批/多Agent/暂停恢复/模型连接/员工详情/组织设置/监控/组织图",
+        "覆盖：任务中心全链路（创建/执行/审批/多Agent/暂停恢复/监控/组织图）",
+        "M3-A：工作区创建/授权/撤销、工具策略与 Shell 禁用、工具调用面板、"
+        "拒绝记录、工具审批批准与驳回、时间线、刷新持久化",
         f"结果：{len(PASSED)} 项通过，{len(FAILED)} 项失败",
         "",
     ]
