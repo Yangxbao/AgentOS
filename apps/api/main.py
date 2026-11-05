@@ -36,6 +36,7 @@ from apps.api.routers import (  # noqa: E402
     monitor,
     positions,
     prompts,
+    system,
     tasks,
     tools,
 )
@@ -64,7 +65,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="AgentOS API", version="0.3.0-m3a", lifespan=lifespan)
+    app = FastAPI(title="AgentOS API", version="0.3.0-m3e", lifespan=lifespan)
     app.state.runner = TaskRunner()
 
     guard_config = config_from_env()
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
         approvals.router,
         monitor.router,
         tools.router,
+        system.router,
     ):
         app.include_router(router, prefix="/api/v1")
     return app

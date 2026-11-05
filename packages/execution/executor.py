@@ -35,10 +35,12 @@ from packages.tasks.approvals import create_approval
 from packages.tasks.plan import topological_waves
 from packages.tools.policy import global_tools_enabled
 
+from . import budget
 from .adapter_factory import build_adapter
 from .guard import check_execution, steps_of
 from .prompting import build_system_prompt
 from .tool_loop import (
+    TOOL_DENIED_LIMIT,
     RunSuspended,
     authorized_tools,
     build_tool_context,
@@ -46,6 +48,9 @@ from .tool_loop import (
 )
 
 logger = logging.getLogger("agentos.execution")
+
+# M3-E：这些错误不视为任务失败，而是"保护性暂停"——保留检查点，人工处理后可续跑
+PAUSE_CODES = {budget.BUDGET_EXCEEDED, TOOL_DENIED_LIMIT}
 
 
 def _now() -> datetime:
@@ -137,6 +142,8 @@ async def execute_run(run_id: str) -> str:
         return await _execute(session, task, run)
     except DomainError as exc:
         session.rollback()
+        if exc.code in PAUSE_CODES and run is not None and task is not None:
+            return _pause_for_guard(session, task, run, exc)
         _fail(session, run, task, exc.code, exc.message)
         return "failed"
     except Exception as exc:  # noqa: BLE001 - 执行边界必须兜底，不能卡在 running
@@ -225,6 +232,8 @@ async def _execute(session: Session, task: Task, run: TaskRun) -> str:
 
         if failures:
             exc = failures[0]
+            if isinstance(exc, DomainError) and exc.code in PAUSE_CODES:
+                return _pause_for_guard(session, task, run, exc)
             if isinstance(exc, DomainError):
                 raise exc
             raise DomainError(
@@ -352,6 +361,39 @@ def _pause(session: Session, task: Task, run: TaskRun, checkpoint: dict) -> str:
     return "paused"
 
 
+def _pause_for_guard(session: Session, task: Task, run: TaskRun, exc: DomainError) -> str:
+    """M3-E 保护性暂停：预算耗尽 / 连续拒绝。保留检查点与已完成步骤，人工处理后可续跑。"""
+    st.ensure_transition(task.state, "paused")
+    now = _now()
+    session.expire(run, ["checkpoint"])
+    checkpoint = dict(run.checkpoint or {})
+    run.state = "paused"
+    run.ended_at = now
+    run.error = f"{exc.code}: {exc.message}"[:500]
+    run.checkpoint = checkpoint
+    task.state = "paused"
+    task.pause_requested = False
+    task.cancel_requested = False
+    task.result = {
+        **(task.result or {}),
+        "error": {"code": exc.code, "message": exc.message[:500]},
+    }
+    task.version = (task.version or 1) + 1
+    event_type = (
+        "task.budget_exceeded" if exc.code == budget.BUDGET_EXCEEDED else "task.tool_denied_limit"
+    )
+    _emit(session, task, run.id, event_type, {
+        "code": exc.code, "message": exc.message[:500], **(exc.detail or {}),
+    })
+    _emit(session, task, run.id, "run.paused", {
+        "reason": exc.code,
+        "completed_steps": checkpoint.get("completed_steps", []),
+    })
+    session.commit()
+    logger.warning("任务 %s 因 %s 暂停：%s", task.id, exc.code, exc.message)
+    return "paused"
+
+
 def _suspend_for_tool_approval(
     session: Session, task: Task, run: TaskRun, checkpoint: dict
 ) -> None:
@@ -405,6 +447,19 @@ async def _run_step(
             session.get(ModelConnection, bundle.connection_id) if bundle.connection_id else None
         )
         check_execution(session, task, employee, connection, mode)
+
+        # M3-E：步骤开始前的护栏
+        # 1) 预算熔断：之前步骤已把预算花完，这里直接暂停，不再调模型
+        budget.check(session, task)
+        # 2) 步骤声明了必需工具但全局执行被关闭：可读地失败，
+        #    而不是悄悄降级成无工具的单次调用让任务"假成功"
+        required_step_tools = {tool for tool in (step.get("tools") or [])}
+        if required_step_tools and not global_tools_enabled():
+            raise DomainError(
+                "TOOLS_DISABLED",
+                "任务步骤需要工具，但全局工具执行已关闭（AGENTOS_TOOL_EXECUTION=off 或 kill switch）",
+                403, {"required": sorted(required_step_tools), "step_id": step["id"]},
+            )
 
         system_prompt, prompt_version = build_system_prompt(session, employee, task, step)
         checkpoint_snapshot = dict(run.checkpoint or {})

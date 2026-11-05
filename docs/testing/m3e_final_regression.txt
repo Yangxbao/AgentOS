@@ -1,0 +1,24 @@
+M3-E 最终回归证据（2026-11-05 23:58:35）
+=== alembic ===
+m3_a_tools (head)
+=== pytest tests/ -q ===
+.....................                                                    [100%]
+306 passed, 3 skipped in 87.91s (0:01:27)
+=== ruff ===
+All checks passed!
+=== reconcile_prompts ===
+orphan_files: 0
+missing_files: 0
+hash_mismatch: 0
+=== e2e_m2 ===
+[PASS] S6 重启后标记中断并转 paused
+[PASS] S6 恢复后续跑成功
+[PASS] S7 越权工具被拒且未调用模型
+M2 E2E 完成：13 项通过，0 项失败
+=== browser_acceptance ===
+[PASS] M3-13 驳回工具调用后任务失败
+浏览器验收完成：29 项通过，0 项失败
+  - M3-13 驳回工具调用后任务失败
+=== npm build ===
+
+[32m✓ built in 222ms[39m

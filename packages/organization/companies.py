@@ -19,6 +19,7 @@ DEFAULT_POLICY: dict[str, Any] = {
     "max_risk_level": "medium",
     "allowed_providers": [],
     "default_budget_usd": None,
+    "default_task_budget_tokens": None,
     "require_cross_model_review": True,
     "review_policy": {"allow_subordinate_review": False, "prefer_cross_model": True},
 }

@@ -2,6 +2,21 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased] - M3-E 执行监管闸门
+
+### Added
+- **预算熔断**：`packages/execution/budget.py` 按 `usage_record` 真实累计 cost 与 tokens；成本限额 `task.budget_usd`（缺省回退公司 `policy.default_budget_usd`），Token 上限公司 `policy.default_task_budget_tokens`；在步骤开始前、每轮模型响应后、每次工具调用后检查（循环内未落库消耗按 pending 计入）；超限任务转 `paused`（保留检查点可续跑）+ 事件 `task.budget_exceeded` + 可读 `task.result.error`
+- **连续拒绝熔断**：同一 run 内连续 3 次工具调用被拒（期间无任何成功/失败/超时结果）→ 任务 `paused` + 事件 `task.tool_denied_limit`，提示"检查员工工具授权"；计数存 `run.checkpoint.denied_count`，任何非拒绝终态归零
+- **全局 kill switch**：`GET/POST /api/v1/system/tool-execution`；进程级内存开关立即拒绝一切工具调用（`TOOLS_DISABLED`），写审计留痕；进程重启后回到 `AGENTOS_TOOL_EXECUTION` 初始值；步骤声明必需工具而全局关闭时任务可读地失败，不再降级成无工具"假成功"
+- **监控**：`/monitor` 摘要新增 `tool_execution`（全局开关状态）、`tools`（总量/状态分布/拒绝原因 Top N）、`budgets`（进行中任务预算使用率）；前端监控页新增"工具执行（全局）"开关卡片、"拒绝原因 Top N"、"预算使用率"三个区块
+
+### Fixed
+- 审批恢复后 `tool_state` 残留在 `checkpoint`（只从内存快照弹出、未写回 DB），同一步骤重试/返工会误判为"仍在等审批"
+
+### Security
+- 三个监管闸门均为"暂停不是失败"：保留检查点与已完成步骤，人工处理后可续跑（静态预估超支 `EXECUTION_BUDGET_EXCEEDED` 仍为直接拒绝）
+- 新增 9 个测试（`tests/test_m3e_guards.py`），总 306 passed / 3 skipped
+
 ## [Unreleased] - M3-A 工具执行层
 
 ### Added

@@ -24,7 +24,12 @@ from packages.tools.invoke import invoke_tool
 from packages.tools.policy import effective_tool_policy, visible_tools
 from packages.tools.registry import model_schemas
 
+from . import budget
+
 DEFAULT_MAX_TOOL_CALLS = 8
+# M3-E：连续拒绝熔断——同一 run 内连续 N 次工具调用被拒（期间无任何成功/失败结果）即暂停
+DENIED_LIMIT = 3
+TOOL_DENIED_LIMIT = "TOOL_DENIED_LIMIT"
 
 
 class RunSuspended(Exception):
@@ -86,6 +91,46 @@ def _tool_message(call_id: str, name: str, content: str) -> dict:
     return {"role": "tool", "tool_call_id": call_id, "name": name, "content": content}
 
 
+def _persist_checkpoint(session: Session, run: TaskRun, mutate) -> dict:
+    """以数据库为准读-改-写 run.checkpoint 并提交。
+
+    工具循环内对快照 dict 的直接改动在步骤收尾时会被 DB 副本覆盖，
+    需要跨步骤/跨 run 保留的字段（denied_count、清理 tool_state）必须走这里。
+    """
+    session.expire(run, ["checkpoint"])
+    checkpoint = dict(run.checkpoint or {})
+    mutate(checkpoint)
+    run.checkpoint = checkpoint
+    session.commit()
+    return checkpoint
+
+
+def _register_outcome(session: Session, run: TaskRun, outcome) -> None:
+    """M3-E 连续拒绝熔断：denied 连续累计（无成功结果间隔），达到 3 次暂停任务。"""
+    if outcome.status == "denied":
+        checkpoint = _persist_checkpoint(
+            session, run,
+            lambda cp: cp.update({"denied_count": int(cp.get("denied_count") or 0) + 1}),
+        )
+        count = int(checkpoint.get("denied_count") or 0)
+        if count >= DENIED_LIMIT:
+            raise DomainError(
+                TOOL_DENIED_LIMIT,
+                f"工具调用连续被拒绝 {count} 次，任务已暂停，请检查员工工具授权与公司策略",
+                403,
+                {"denied_count": count, "last_error_code": outcome.error_code},
+            )
+        return
+    if outcome.status in {"succeeded", "failed", "timeout"}:
+        # 出现任何非拒绝的终态结果就重置"连续"计数
+        _persist_checkpoint(session, run, lambda cp: cp.update({"denied_count": 0}))
+
+
+def _check_budget(session: Session, task: Task, pending: dict | None = None) -> None:
+    """M3-E 预算熔断：超限抛 BUDGET_EXCEEDED（执行器转为暂停）。"""
+    budget.check(session, task, pending)
+
+
 def _parse_arguments(raw: str) -> tuple[dict, str | None]:
     if not raw or not str(raw).strip():
         return {}, None
@@ -129,6 +174,8 @@ async def run_tool_loop(
     usage_items: list[Any] = []
     call_index = 0
     iteration = 0
+    pending_cost = 0.0
+    pending_tokens = 0
 
     if resuming:
         messages = list(state.get("messages") or [])
@@ -154,7 +201,11 @@ async def run_tool_loop(
         messages.append(_tool_message(pending.get("call_id") or "call", row.tool_name, outcome.to_message()))
         call_index += 1
         iteration += 1
+        # 审批恢复后清除挂起状态：必须写回 DB，否则会残留在 checkpoint 里
+        # 让同一步骤的重试/返工误判为"仍在等审批"
+        _persist_checkpoint(session, run, lambda cp: cp.pop("tool_state", None))
         checkpoint.pop("tool_state", None)
+        _register_outcome(session, run, outcome)
     else:
         messages = [{"role": "system", "content": system_prompt}]
         user_content = instruction if not step.get("input") else instruction
@@ -169,6 +220,15 @@ async def run_tool_loop(
             )
         response = await adapter.chat(messages, tools=schemas, tool_choice="auto")
         usage_items.append(response.get("usage"))
+        # M3-E 预算检查：本轮模型调用后立即核算（含尚未落库的本轮消耗）
+        response_usage = response.get("usage")
+        if response_usage is not None:
+            pending_cost += float(getattr(response_usage, "cost_usd", 0.0) or 0.0)
+            pending_tokens += int(
+                (getattr(response_usage, "prompt_tokens", 0) or 0)
+                + (getattr(response_usage, "completion_tokens", 0) or 0)
+            )
+        _check_budget(session, task, {"cost_usd": pending_cost, "tokens": pending_tokens})
         calls = response.get("tool_calls") or []
         assistant_message = response.get("message") or {
             "role": "assistant", "content": response.get("content") or "",
@@ -229,5 +289,8 @@ async def run_tool_loop(
 
             messages.append(_tool_message(call_id, name, outcome.to_message()))
             call_index += 1
+            # M3-E：连续拒绝计数 + 每次工具调用后的预算核算（含本轮未落库的模型消耗）
+            _register_outcome(session, run, outcome)
+            _check_budget(session, task, {"cost_usd": pending_cost, "tokens": pending_tokens})
 
         iteration += 1

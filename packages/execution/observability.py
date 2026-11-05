@@ -4,13 +4,14 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from packages.organization.common import iso_utc
 from packages.persistence.models import (
     AgentHandoff,
     AgentRun,
+    Company,
     Employee,
     Task,
     TaskApproval,
@@ -20,6 +21,7 @@ from packages.persistence.models import (
     UsageRecord,
 )
 from packages.shared.errors import DomainError
+from packages.tools.policy import global_tools_enabled
 
 
 def _task(session: Session, owner_id: str, task_id: str) -> Task:
@@ -332,6 +334,7 @@ def monitor_summary(session: Session, owner_id: str, company_id: str) -> dict:
         .where(AgentRun.owner_id == owner_id, Task.company_id == company_id)
         .order_by(AgentRun.created_at.desc()).limit(10)
     ).scalars().all()
+
     return {
         "company_id": company_id,
         "task_total": len(tasks),
@@ -342,4 +345,79 @@ def monitor_summary(session: Session, owner_id: str, company_id: str) -> dict:
         "today_calls": today_usage["calls"],
         "failed_tasks": sum(1 for task in tasks if task.state == "failed"),
         "recent_agent_runs": [serialize_agent_run(row) for row in recent_agents],
+        # M3-E：工具调用统计 / 拒绝原因 Top N / 预算使用率 / 全局开关状态
+        "tool_execution": {"enabled": global_tools_enabled()},
+        "tools": _tool_stats(session, owner_id, company_id),
+        "budgets": _budget_watch(session, owner_id, company_id),
     }
+
+
+def _tool_stats(session: Session, owner_id: str, company_id: str) -> dict:
+    rows = session.execute(
+        select(ToolCall.status, ToolCall.error_code, func.count())
+        .join(Task, Task.id == ToolCall.task_id)
+        .where(ToolCall.owner_id == owner_id, Task.company_id == company_id)
+        .group_by(ToolCall.status, ToolCall.error_code)
+    ).all()
+    by_status: dict[str, int] = defaultdict(int)
+    denials: dict[str, int] = defaultdict(int)
+    total = 0
+    for status, error_code, count in rows:
+        total += int(count)
+        by_status[status] += int(count)
+        if status == "denied":
+            denials[error_code or "UNKNOWN"] += int(count)
+    denials_top = sorted(
+        ({"code": code, "count": count} for code, count in denials.items()),
+        key=lambda item: (-item["count"], item["code"]),
+    )[:5]
+    return {
+        "total": total,
+        "by_status": dict(sorted(by_status.items())),
+        "denials_top": denials_top,
+    }
+
+
+def _spent_cost(session: Session, task_id: str) -> float:
+    total = session.execute(
+        select(func.coalesce(func.sum(UsageRecord.cost_usd), 0.0))
+        .join(AgentRun, AgentRun.id == UsageRecord.agent_run_id)
+        .join(TaskRun, TaskRun.id == AgentRun.task_run_id)
+        .where(TaskRun.task_id == task_id)
+    ).scalar_one()
+    return round(float(total or 0.0), 8)
+
+
+def _budget_watch(session: Session, owner_id: str, company_id: str, limit: int = 10) -> dict:
+    """非终态任务的预算使用率：上限取 task.budget_usd，缺省回退公司默认预算。"""
+    company = session.get(Company, company_id)
+    default_usd = (company.policy or {}).get("default_budget_usd") if company else None
+    try:
+        default_usd = float(default_usd) if default_usd is not None else None
+    except (TypeError, ValueError):
+        default_usd = None
+
+    tasks = session.execute(
+        select(Task).where(
+            Task.owner_id == owner_id,
+            Task.company_id == company_id,
+            Task.parent_task_id.is_(None),
+            Task.state.not_in(("succeeded", "cancelled", "skipped")),
+        )
+    ).scalars().all()
+    items = []
+    for task in tasks:
+        cap = task.budget_usd if task.budget_usd is not None else default_usd
+        if cap is None or float(cap) <= 0:
+            continue
+        spent = _spent_cost(session, task.id)
+        items.append({
+            "task_id": task.id,
+            "title": task.title,
+            "state": task.state,
+            "budget_usd": float(cap),
+            "spent_usd": spent,
+            "ratio": round(spent / float(cap), 4),
+        })
+    items.sort(key=lambda item: (-item["ratio"], item["task_id"]))
+    return {"default_budget_usd": default_usd, "watching": items[:limit]}

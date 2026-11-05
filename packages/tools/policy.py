@@ -44,8 +44,35 @@ DEFAULT_TOOL_POLICY: dict = {
 }
 
 
+# M3-E kill switch：进程级紧急停止开关（API 可写，环境变量只决定初始值）。
+# 设计取舍：内存态，进程重启后回到 AGENTOS_TOOL_EXECUTION 决定的初始值——
+# 紧急制动要的是"立即生效 + 审计留痕"，持久关闭仍应通过环境变量表达。
+_KILL_SWITCH = False
+
+
+def set_tool_execution(enabled: bool) -> None:
+    """设置进程级工具执行紧急开关：enabled=False 时立即拒绝一切工具调用。"""
+    global _KILL_SWITCH
+    _KILL_SWITCH = not bool(enabled)
+
+
+def tool_execution_state() -> dict:
+    """当前全局工具执行的完整状态（env 初始值 + 运行时紧急开关）。"""
+    env_enabled = (
+        os.environ.get("AGENTOS_TOOL_EXECUTION", "off").strip().lower()
+        in {"on", "1", "true", "yes"}
+    )
+    return {
+        "env_enabled": env_enabled,
+        "kill_switch": _KILL_SWITCH,
+        "enabled": env_enabled and not _KILL_SWITCH,
+    }
+
+
 def global_tools_enabled() -> bool:
-    """全局工具执行开关：默认关闭，必须显式 AGENTOS_TOOL_EXECUTION=on。"""
+    """全局工具执行开关：默认关闭，必须显式 AGENTOS_TOOL_EXECUTION=on，且未被 kill switch 停用。"""
+    if _KILL_SWITCH:
+        return False
     return os.environ.get("AGENTOS_TOOL_EXECUTION", "off").strip().lower() in {"on", "1", "true", "yes"}
 
 
@@ -229,6 +256,10 @@ def decide(ctx: ToolContext, spec: ToolSpec, args: dict) -> Decision:
     policy = ctx.tool_policy
 
     if not global_tools_enabled():
+        if tool_execution_state()["kill_switch"]:
+            return Decision(False, risk).deny(
+                "TOOLS_DISABLED", "工具执行已被管理员紧急停止（kill switch）"
+            )
         return Decision(False, risk).deny(
             "TOOLS_DISABLED", "全局工具执行开关已关闭（AGENTOS_TOOL_EXECUTION=off）"
         )

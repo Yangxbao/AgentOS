@@ -157,6 +157,31 @@ export interface TimelineItem {
   duration_ms?: number
 }
 
+export interface DenialTop {
+  code: string
+  count: number
+}
+
+export interface ToolStats {
+  total: number
+  by_status: Record<string, number>
+  denials_top: DenialTop[]
+}
+
+export interface BudgetWatchItem {
+  task_id: string
+  title: string
+  state: string
+  budget_usd: number
+  spent_usd: number
+  ratio: number
+}
+
+export interface BudgetWatch {
+  default_budget_usd: number | null
+  watching: BudgetWatchItem[]
+}
+
 export interface MonitorSummary {
   company_id: string
   task_total: number
@@ -167,6 +192,9 @@ export interface MonitorSummary {
   today_calls: number
   failed_tasks: number
   recent_agent_runs: AgentRun[]
+  tool_execution?: { enabled: boolean }
+  tools?: ToolStats
+  budgets?: BudgetWatch
 }
 
 export const tasksApi = {

@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { orgApi } from '../api/org'
+import { systemApi } from '../api/system'
 import { tasksApi } from '../api/tasks'
 import { StateBadge } from './TasksPage'
 
@@ -16,6 +17,7 @@ function ts(value: string | null | undefined): string {
 }
 
 export default function MonitorPage() {
+  const queryClient = useQueryClient()
   const companies = useQuery({ queryKey: ['companies'], queryFn: orgApi.listCompanies })
   const [companyId, setCompanyId] = useState<string | null>(null)
   const activeCompanyId = companyId ?? companies.data?.items[0]?.id ?? null
@@ -31,6 +33,12 @@ export default function MonitorPage() {
     queryFn: () => tasksApi.monitor(activeCompanyId as string),
     enabled: Boolean(activeCompanyId),
     refetchInterval: 3000,
+  })
+
+  const toolEnabled = summary.data?.tool_execution?.enabled ?? false
+  const switchToolExecution = useMutation({
+    mutationFn: (enabled: boolean) => systemApi.setToolExecution(enabled),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['monitor'] }),
   })
 
   const data = summary.data
@@ -87,6 +95,81 @@ export default function MonitorPage() {
                 </div>
               ))}
             </div>
+          </section>
+
+          <section className="grid gap-3 md:grid-cols-2">
+            <div className="rounded border border-slate-800 p-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-medium">工具执行（全局）</h2>
+                <button
+                  className={`rounded px-2 py-1 text-xs ${
+                    toolEnabled
+                      ? 'bg-rose-700 text-white hover:bg-rose-600'
+                      : 'bg-emerald-700 text-white hover:bg-emerald-600'
+                  }`}
+                  disabled={switchToolExecution.isPending}
+                  onClick={() => switchToolExecution.mutate(!toolEnabled)}
+                >
+                  {toolEnabled ? '紧急停止工具执行' : '恢复工具执行'}
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-slate-400">
+                当前状态：
+                <span className={toolEnabled ? 'text-emerald-400' : 'text-rose-400'}>
+                  {toolEnabled ? ' 开启' : ' 关闭（一切工具调用将被拒绝）'}
+                </span>
+                。开关立即生效、写审计留痕；进程重启后回到 AGENTOS_TOOL_EXECUTION 的初始值。
+              </p>
+              {data?.tools && (
+                <p className="mt-1 text-xs text-slate-500">
+                  累计调用 {data.tools.total} 次
+                  {Object.entries(data.tools.by_status).map(([status, count]) => ` · ${status} ${count}`).join('')}
+                </p>
+              )}
+            </div>
+
+            <div className="rounded border border-slate-800 p-4">
+              <h2 className="text-sm font-medium">拒绝原因 Top N</h2>
+              <ul className="mt-2 space-y-1 text-xs">
+                {(data?.tools?.denials_top ?? []).map((item) => (
+                  <li key={item.code} className="flex items-center justify-between">
+                    <span className="font-mono text-slate-300">{item.code}</span>
+                    <span className="text-slate-500">{item.count} 次</span>
+                  </li>
+                ))}
+                {(data?.tools?.denials_top ?? []).length === 0 && (
+                  <li className="text-slate-500">没有被拒绝的工具调用</li>
+                )}
+              </ul>
+            </div>
+          </section>
+
+          <section className="rounded border border-slate-800 p-4">
+            <h2 className="text-sm font-medium">预算使用率（进行中的任务）</h2>
+            <table className="mt-2 w-full text-left text-xs">
+              <thead className="text-slate-500">
+                <tr>
+                  <th className="py-1">任务</th><th>状态</th><th>已用 / 预算</th><th>使用率</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.budgets?.watching ?? []).map((item) => (
+                  <tr key={item.task_id} className="border-t border-slate-800">
+                    <td className="py-1 text-slate-300">{item.title}</td>
+                    <td><StateBadge state={item.state} /></td>
+                    <td className="text-slate-400">
+                      ${item.spent_usd.toFixed(4)} / ${item.budget_usd.toFixed(2)}
+                    </td>
+                    <td className={item.ratio >= 0.9 ? 'text-rose-400' : 'text-slate-300'}>
+                      {(item.ratio * 100).toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+                {(data?.budgets?.watching ?? []).length === 0 && (
+                  <tr><td className="py-3 text-slate-500" colSpan={4}>没有设置预算的进行中任务</td></tr>
+                )}
+              </tbody>
+            </table>
           </section>
 
           <section className="rounded border border-slate-800 p-4">

@@ -2,7 +2,7 @@
 
 > **给接手者**：读完这一份就能接手，不需要读其他文档。
 > 本文覆盖 **M0 → M3-A** 的完整现状：环境、代码、数据、权限、命令、坑、下一步。
-> 版本：2026-11-05｜当前 HEAD 以 `git log -1` 为准｜M3-A 代码提交：`1b0198d`｜数据库 revision：`m3_a_tools`
+> 版本：2026-11-06（M3-E 完成）｜当前 HEAD 以 `git log -1` 为准｜数据库 revision：`m3_a_tools`（M3-E 无迁移）
 
 ---
 
@@ -14,16 +14,17 @@ AgentOS 是一个**本地运行的 AI 数字员工协作操作系统**：用户�
 
 - 组织/员工/模型连接/提示词版本/权限/派工/审计（M1）
 - 任务中心 + 后台执行引擎 + 多 Agent 协作 + 人工审批暂停恢复 + 监控与成本（M2）
-- **工具执行层**（M3-A）：工作区授权、文件读写、HTTP 白名单、五层权限、工具调用审计、高风险工具人工审批、断点恢复（M3-A）
+- **工具执行层**（M3-A）：工作区授权、文件读写、HTTP 白名单、五层权限、工具调用审计、高风险工具人工审批、断点恢复
+- **执行监管闸门**（M3-E）：运行中预算熔断（成本/Token）、连续拒绝熔断、全局 kill switch、监控统计
 
 **当前不能做什么**（未实现，别以为是 bug）：
 
 - Shell 执行（永久禁用，无代码路径）
-- 递归多层任务拆分、长期记忆/RAG、多 Worker、预算熔断（M3-B/C/D/E/F）
+- 递归多层任务拆分、长期记忆/RAG、多 Worker（M3-B/C/D/F）
 - 真实外部网络访问（未授权，HTTP 只测本机 stub）
 - 账号体系（本地单用户 `owner_id="local"`）
 
-**代码规模**：Python 约 1.4 万行（packages + apps + scripts），React 前端 13 个页面（14 条路由，含 `/` 重定向），21 张表，80 个 `/api/v1` route-method 对。
+**代码规模**：Python 约 1.4 万行（packages + apps + scripts），React 前端 13 个页面（14 条路由，含 `/` 重定向），21 张表，82 个 `/api/v1` route-method 对。
 
 ---
 
@@ -84,7 +85,7 @@ cd /d E:\AgentOS\apps\web
 npm run dev
 ```
 
-打开 `http://127.0.0.1:5173`，右上角应显示 **“后端已连接 · v0.3.0-m3a”**。
+打开 `http://127.0.0.1:5173`，右上角应显示 **“后端已连接 · v0.3.0-m3e”**。
 
 健康检查：
 
@@ -262,6 +263,18 @@ SQLite（WAL）
 - `risk > min(员工 max_risk_level, 公司 auto_execute_max_risk)`（默认 medium）→ **转人工审批**；
 - `shell` 类别无条件 `SHELL_DISABLED`。
 
+### 5.5 执行监管闸门（M3-E）
+
+三个"暂停型"闸门：触发后任务转 `paused`、保留检查点可续跑，**不是失败**（与静态预估的 `EXECUTION_BUDGET_EXCEEDED` 直接拒绝不同）。
+
+| 闸门 | 触发点 | 逻辑 | 结果 |
+|---|---|---|---|
+| 预算熔断 | 步骤开始前 + 每轮模型响应后 + 每次工具调用后 | `packages/execution/budget.py` 按 `usage_record` 真实累计 cost+tokens（循环内未落库消耗按 pending 计入）；成本限额 `task.budget_usd` → 公司 `policy.default_budget_usd`，Token 上限公司 `policy.default_task_budget_tokens` | `BUDGET_EXCEEDED` + 事件 `task.budget_exceeded` |
+| 连续拒绝熔断 | 每次工具调用结果之后 | 同一 run 内连续 3 次 `tool_call` 被拒（期间无任何成功/失败/超时结果）即触发；计数存 `run.checkpoint.denied_count`，任何非拒绝终态归零 | `TOOL_DENIED_LIMIT` + 事件 `task.tool_denied_limit`，消息提示"检查员工工具授权" |
+| 全局 kill switch | `POST /api/v1/system/tool-execution {"enabled": false}` | 进程级内存开关，立即拒绝一切工具调用（拒绝码仍为 `TOOLS_DISABLED`，消息注明"紧急停止"）；审计留痕；**进程重启后回到 `AGENTOS_TOOL_EXECUTION` 初始值** | 步骤必需工具的任务会可读地失败（`TOOLS_DISABLED`），而不是降级成无工具假成功 |
+
+两者都由执行器统一转暂停（`executor.PAUSE_CODES` → `_pause_for_guard`），`task.result.error` 可读。
+
 ---
 
 ## 6. 数据模型（21 张表）
@@ -315,7 +328,7 @@ m0_baseline → m1_b1_agent_run_employee_id → m1_b2_org → m1_b3_employee_mod
 
 ### 7.1 API
 
-前缀 `/api/v1`（`/api` 保留 M0 的 health/tasks 兼容）。共 **80 个 route-method 对**：
+前缀 `/api/v1`（`/api` 保留 M0 的 health/tasks 兼容）。共 **82 个 route-method 对**：
 
 | 域 | 数量 | 代表端点 |
 |---|---|---|
@@ -325,6 +338,7 @@ m0_baseline → m1_b1_agent_run_employee_id → m1_b2_org → m1_b3_employee_mod
 | 治理 | 6 | `/employees/{id}/effective-permissions`、`/assignments/preview`、`/audit` |
 | 任务/审批/监控 | 21 | `/companies/{cid}/tasks`、`/tasks/{id}/run`、`/approvals/{id}/decision`、`/tasks/{id}/timeline` |
 | **工具（M3-A）** | 14 | `/companies/{cid}/workspaces`、`/workspaces/{id}/grants`、`/tools`、`/companies/{cid}/tool-policy`、`/tasks/{id}/tool-calls` |
+| **系统（M3-E）** | 2 | `GET/POST /system/tool-execution`（kill switch，写审计） |
 
 约定：
 - 错误统一 `{"error": {"code", "message", "detail", "request_id"}}`；HTTP 状态码语义化（403 权限、409 冲突、422 参数、413 过大、504 超时）。
@@ -389,6 +403,10 @@ m0_baseline → m1_b1_agent_run_employee_id → m1_b2_org → m1_b3_employee_mod
 6. **迁移前备份，只向前迁移**；测试只用临时库（`AGENTOS_DB_URL` + `tmp_path`）。
 7. **每个功能要有测试**；测试必须真实执行，不允许为了变绿删断言/跳过安全检查。
 8. **不安装**未授权组件；**不改**系统安全设置；**不推** GitHub。
+9. **每个任务一份验收文档**（2026-11-06 起的约定）：任务完成后在 `docs/acceptance/` 写
+   `YYYY-MM-DD_<任务>_验收文档.md`，验收材料**全部集中在这一个文档里**——验收条款原文、
+   逐条对照表、测试/回归证据（原始输出内联，不要只给文件引用）、设计取舍、诚实声明、
+   复核命令、待决策问题。不要把验收资料分散到多个文件。
 
 ### 9.2 代码风格
 
@@ -434,12 +452,12 @@ REM 真实浏览器验收（Edge + CDP；会自己起 8000/5173，跑完写证�
 .venv\Scripts\python.exe scripts\browser_acceptance.py
 ```
 
-### 10.1 当前基线（2026-11-05 实测）
+### 10.1 当前基线（2026-11-06 M3-E 实测）
 
 ```
-pytest tests/ -q                                  → 297 passed, 3 skipped
+pytest tests/ -q                                  → 306 passed, 3 skipped
 ruff check ...                                    → All checks passed!
-cd apps/web && npm run build                      → ✓ 488 kB (gzip 149 kB)
+cd apps/web && npm run build                      → ✓ 491.66 kB (gzip 150.13 kB)
 alembic current                                   → m3_a_tools (head)
 reconcile_prompts.py                              → orphan 0 / missing 0 / mismatch 0
 scripts/e2e_m2.py                                 → 13 项全过
@@ -456,6 +474,7 @@ scripts/browser_acceptance.py                     → 29 项全过（0 失败，
 | `test_tool_http.py` | 17 | 白名单/SSRF/重定向/超时/大响应（本机 stub） |
 | `test_tool_invoke.py` | 14 | 落库/审计/脱敏/幂等/超时/截断 |
 | `test_tool_loop.py` | 13 | 工具循环、8 次上限、审批挂起与恢复、驳回 |
+| `test_m3e_guards.py` | 9 | M3-E：成本/Token 预算熔断、连续拒绝熔断、kill switch、监控统计 |
 | `test_shell_disabled.py` | 9 | Shell 多重证明（含 AST 扫描） |
 | `test_tool_api.py` | 13 | 工作区/授权/策略/调用列表 API |
 | `test_task_center.py` / `test_execution.py` / `test_collaboration.py` / `test_approvals.py` / `test_observability.py` | 8/11/7/6/6 | M2 任务/执行/协作/审批/监控 |
@@ -467,6 +486,8 @@ scripts/browser_acceptance.py                     → 29 项全过（0 失败，
 | 文件 | 内容 |
 |---|---|
 | `docs/testing/m3a_final_regression.txt` | M3-A 最新一次 pytest/ruff/build/alembic/真实库/对账/浏览器 的真实输出 |
+| `docs/testing/m3e_final_regression.txt` | M3-E 最新一次 pytest/ruff/build/alembic/对账/E2E/浏览器 的真实输出 |
+| `docs/acceptance/2026-11-06_M3-E_验收文档.md` | M3-E 验收文档（自包含，验收条款/对照/证据/取舍/待决策全在内；此后每个任务一份，见 §9.1 约定 9） |
 | `docs/testing/m3_browser_acceptance.txt` | 29 项浏览器验收逐项结果 |
 | `docs/testing/m3_browser/*.png` | 8 张 M3-A 截图（m3_01..m3_08：工作区/策略/工具面板/审批/驳回）+ M2 的 13 张 |
 | `docs/testing/m2_*.txt` | M2 的回归与 E2E 证据 |
@@ -483,6 +504,7 @@ scripts/browser_acceptance.py                     → 29 项全过（0 失败，
 | M1 | 完成（P1 已清） | 组织/员工/模型解耦/提示词版本/三层权限/派工/审计；91 测试 |
 | M2 | 完成 | 任务中心/执行引擎/多 Agent/审批/监控；129 测试 |
 | **M3-A** | **完成** | 工具执行层；新增 171 测试，总 297；浏览器 29/29 |
+| **M3-E** | **完成** | 执行监管：预算/连续拒绝熔断、kill switch、监控统计；新增 9 测试，总 306 |
 | M3-E | 未开始 | 预算熔断、连续拒绝暂停、kill switch |
 | M3-B | 未开始 | 递归拆分、重规划 |
 | M3-C | 未开始 | 长期记忆（计划用 SQLite FTS5，不接 embedding） |
@@ -495,7 +517,6 @@ scripts/browser_acceptance.py                     → 29 项全过（0 失败，
 |---|---|---|
 | P0 | 无 | — |
 | P1 | 真实模型工具调用**未验证**（本轮 0 次真实调用，只做了 LiteLLM tools 适配 + Mock 全链路） | 允许时用已有 Key 跑一次 `max_tokens=64` 的最小验证 |
-| P1 | 无预算熔断 | M3-E 第一件事 |
 | P1 | workspace/policy 的审计与业务非同事务（工具调用本身已同事务） | 可接受，极端崩溃会缺一条审计 |
 | P2 | 工作区改名用 `window.prompt`；域名白名单无排序；`fs.list_dir` 无隐藏文件开关 | 打磨项 |
 | P2 | 前端未做拖拽移动部门 | 后端 `/move` 已有 |
@@ -504,24 +525,21 @@ scripts/browser_acceptance.py                     → 29 项全过（0 失败，
 
 - M2 验收：4 次（两次单步 + 一次两步协作），353 tokens，≈ **$0.00006285**。
 - M3-A：**0 次**。
+- M3-E：**0 次**（预算测试用假 adapter 注入成本，无真实调用）。
 - 所有测试与浏览器验收默认 Mock；`usage_record.billable=false`。
 
 ---
 
-## 12. 下一步（M3-E）具体清单
+## 12. 下一步（M3-B）
 
-按 `M3_MASTER_PLAN.md` §13 的 M3-E 验收做，建议落点：
+M3-E 闸门已就位（预算/连续拒绝熔断、kill switch），失控风险已收敛，可以开始递归。按 `M3_MASTER_PLAN.md` §13 的 M3-B 验收做：
 
-1. **预算**：新增 `packages/execution/budget.py`
-   - 读 `task.budget_usd` + 公司策略默认预算；按 `usage_record` 累计 cost 与 tokens
-   - 超限：`task.state=paused` + `TaskEvent("task.budget_exceeded")` + `task.result.error`
-   - 在 `executor._run_step` 调模型前检查，`tool_loop` 每次工具调用后也检查
-2. **连续拒绝/失败**：`task_run.checkpoint` 里累计 `denied_count`，≥3 → 暂停并提示“检查授权”
-3. **全局 kill switch**：`POST /api/v1/system/tool-execution`（仅本地用户）→ 写公司策略或进程级开关，审计留痕
-4. **监控**：`/monitor` 增加工具调用统计、拒绝原因 Top N、预算使用率
-5. **验收**：单步 8 次工具 → 终止；超预算 → paused；连续 3 次拒绝 → paused；`AGENTOS_TOOL_EXECUTION=off` → 所有调用拒绝且任务可读地失败
+1. 子任务可设计划、递归执行、动态分配（步骤省略 `employee_id` 时按能力自动分配并记录 decision）
+2. 深度/总步骤/预算上限：第 4 层 `TASK_DEPTH_EXCEEDED`、总步骤超 50 被拒、循环依赖被拒
+3. `task_plan_revision`、replan API（超 3 次被拒）、前端折叠计划
+4. 失败步骤 replan 后只重跑失败及其下游，上游不重复
 
-**不要先做 M3-B**：递归会放大成本与失控风险，等 E 的闸门就位。
+设计时先想清楚**预算在递归下的语义**（父子任务预算共享还是分账）：`budget.py` 的 `limits_for/spent_for` 是单一入口，按 task_id 聚合，子任务各自记账天然支持"父预算 = 子之和"，不要绕过它。
 
 ---
 
@@ -554,7 +572,9 @@ scripts/browser_acceptance.py                     → 29 项全过（0 失败，
 | 任务 CRUD / 入队 / 暂停恢复 | `packages/tasks/service.py` |
 | 执行流程 / 检查点 / 工具分流 | `packages/execution/executor.py` |
 | 后台 worker / 认领 / 重启恢复 | `packages/execution/runner.py` |
-| 工具循环 / 审批挂起状态 | `packages/execution/tool_loop.py` |
+| 工具循环 / 审批挂起状态 / 连续拒绝计数 | `packages/execution/tool_loop.py` |
+| 预算熔断（成本/Token 限额与累计） | `packages/execution/budget.py` |
+| 全局 kill switch（系统开关） | `packages/tools/policy.py` + `apps/api/routers/system.py` |
 | 工具定义 / 新增工具 | `packages/tools/registry.py`（+ 对应 handler） |
 | 路径安全 | `packages/tools/paths.py` |
 | 五层权限 | `packages/tools/policy.py` |
@@ -578,7 +598,7 @@ scripts/browser_acceptance.py                     → 29 项全过（0 失败，
 ```bat
 cd /d E:\AgentOS
 .venv\Scripts\python.exe -m alembic current                  REM 期望 m3_a_tools (head)
-.venv\Scripts\python.exe -m pytest tests/ -q                 REM 期望 297 passed, 3 skipped
+.venv\Scripts\python.exe -m pytest tests/ -q                 REM 期望 306 passed, 3 skipped
 .venv\Scripts\python.exe -m ruff check apps packages scripts tests migrations
 cd apps\web && npm run build && cd ..\..
 .venv\Scripts\python.exe scripts\backup_db.py                REM 先备份再动库
@@ -587,8 +607,9 @@ git status                                                   REM 期望干净
 ```
 
 - [ ] 上面 6 条命令全部符合预期
-- [ ] 打开 `http://127.0.0.1:5173` 能看到任务中心，右上角显示 v0.3.0-m3a
+- [ ] 打开 `http://127.0.0.1:5173` 能看到任务中心，右上角显示 v0.3.0-m3e
 - [ ] `GET /api/v1/tools` 返回 7 个工具，`shell.run.enabled=false`
+- [ ] 明白 M3-E 三个闸门都是**暂停不是失败**，kill switch 是进程内存态（重启回到 env 初始值）
 - [ ] 明白 `AGENTOS_TOOL_EXECUTION` 默认 off，工具不执行是配置而非 bug
 - [ ] 知道真实库有 4 条 M0 历史任务，不能清空/回填
 - [ ] 知道不要装 Playwright/Docker，不要推 GitHub
