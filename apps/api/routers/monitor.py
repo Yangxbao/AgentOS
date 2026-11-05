@@ -83,6 +83,42 @@ def monitor_endpoint(
     return monitor_summary(db, actor.owner_id, company_id)
 
 
+@router.get("/workers")
+def workers_endpoint(
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor),
+):
+    """M3-D：在线 worker 视图（租约、心跳、队列深度）。"""
+    from packages.execution.runner import TaskRunner
+
+    return TaskRunner().workers_snapshot()
+
+
+@router.get("/workers/stats")
+def worker_stats_endpoint(
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor),
+):
+    """M3-D：队列长度 / 运行中 / 租约中断 / 重启恢复统计。"""
+    from sqlalchemy import func, select
+
+    from packages.persistence.models import TaskRun
+
+    def _count(*states):
+        return int(db.execute(
+            select(func.count()).select_from(TaskRun).where(TaskRun.state.in_(states))
+        ).scalar_one() or 0)
+
+    return {
+        "queued": _count("queued"),
+        "running": _count("running"),
+        "interrupted": _count("interrupted"),
+        "paused": _count("paused"),
+        "failed": _count("failed"),
+        "succeeded": _count("succeeded"),
+    }
+
+
 @router.get("/approvals/{approval_id}")
 def approval_detail_endpoint(
     approval_id: str,
