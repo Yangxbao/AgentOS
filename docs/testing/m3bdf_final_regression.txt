@@ -1,0 +1,32 @@
+M3-B/C/D/F 批次最终回归证据（2026-11-06 02:02:43）
+=== alembic current ===
+m3b_memory_workers (head)
+=== pytest tests/ -q ===
+.................ss............................                          [100%]
+332 passed, 3 skipped in 81.62s (0:01:21)
+=== ruff ===
+All checks passed!
+=== reconcile_prompts ===
+orphan_files: 0
+missing_files: 0
+hash_mismatch: 0
+=== e2e_m2 ===
+M2 E2E 完成：13 项通过，0 项失败
+=== e2e_m3f ===
+M3-F E2E 完成：16 项通过，0 项失败（耗时 1.9s，全程 Mock + 本地 stub）
+=== browser_acceptance ===
+浏览器验收完成：29 项通过，0 项失败
+=== 真实库完整性 ===
+task 4
+task_run 4
+agent_run 4
+usage_record 4
+memory_item 0
+task_plan_revision 0
+audit_log 2
+tool_call 0
+workspace 0
+company 0
+=== npm build ===
+
+[32m✓ built in 205ms[39m
