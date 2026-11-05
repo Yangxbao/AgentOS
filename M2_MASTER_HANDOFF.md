@@ -207,6 +207,8 @@ cd apps\web && npm run dev                                  # 终端 2（默认 
 ## 11. Git / 工作区 / 数据库
 
 ```
+8c9cc8e fix(m2): 步骤级超时兜底 + 真实两步协作 E2E
+b28c7b7 docs(m2): 补记阶段提交号
 39c064e docs(m2): 规划、交接、测试证据、README/CHANGELOG/ROADMAP
 2a5978e feat(m2-web): 任务中心、任务详情、执行监控页面
 dcb68f5 feat(m2): 任务中心 + 执行引擎 + 多 Agent 协作 + 审批 + 监控（后端）
