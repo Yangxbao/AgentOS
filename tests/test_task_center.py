@@ -192,7 +192,7 @@ def test_plan_creates_subtasks_and_validates(write_client, seeded_team):
     assert len(body["children"]) == 2
     assert {child["state"] for child in body["children"]} == {"pending"}
 
-    # 子任务不能单独编辑/运行/设置计划
+    # 子任务不能单独编辑/运行；M3-B 起 pending 子任务可设计划（形成任务树，见 M3_MASTER_PLAN §7.2）
     child_id = body["children"][0]["id"]
     child_update = write_client.patch(f"/api/v1/tasks/{child_id}", json={"title": "改子任务"})
     assert child_update.status_code == 409
@@ -202,7 +202,9 @@ def test_plan_creates_subtasks_and_validates(write_client, seeded_team):
         f"/api/v1/tasks/{child_id}/plan",
         json={"steps": [{"id": "x", "employee_id": seeded_team["dev"]["id"], "instruction": "x"}]},
     )
-    assert child_plan.status_code == 409
+    assert child_plan.status_code == 200, child_plan.text
+    detail_child = write_client.get(f"/api/v1/tasks/{child_id}").json()
+    assert len(detail_child["children"]) == 1  # 孙任务已创建，父执行器递归调度
 
 
 def test_task_not_found(write_client):

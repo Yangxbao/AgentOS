@@ -60,6 +60,13 @@ class TaskPlanInput(BaseModel):
     max_parallel: int = Field(default=4, ge=1, le=8)
 
 
+class ReplanRequest(BaseModel):
+    """M3-B：失败任务重规划——新步骤覆盖旧计划，只重跑失败步骤及其下游。"""
+    steps: list[PlanStepInput] = Field(min_length=1, max_length=20)
+    failed_step_id: str | None = None
+    reason: str = Field(default="", max_length=500)
+
+
 class DecomposeRequest(BaseModel):
     max_steps: int = Field(default=4, ge=2, le=6)
     manager_employee_id: str | None = None

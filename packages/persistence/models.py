@@ -66,6 +66,11 @@ class Task(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     tool_calls_count: Mapped[int] = mapped_column(Integer, default=0)
+    # M3-B：计划版本 / 重规划计数 / 递归上限（后端强制，不依赖 Prompt）
+    plan_revision: Mapped[int] = mapped_column(Integer, default=1)
+    replan_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_depth: Mapped[int] = mapped_column(Integer, default=3)
+    max_total_steps: Mapped[int] = mapped_column(Integer, default=50)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
@@ -100,6 +105,11 @@ class TaskRun(Base):
     resumed_from_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     approved_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tool_calls_count: Mapped[int] = mapped_column(Integer, default=0)
+    # M3-D：租约与调度快照（多 worker）
+    lease_owner: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
 
     __table_args__ = (
         # 防重复执行：同一任务同时最多一条活跃 run（SQLite/PostgreSQL 部分索引）
@@ -513,3 +523,51 @@ class UsageRecord(Base):
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     billable: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class TaskPlanRevision(Base):
+    """M3-B：任务计划版本记录。每次计划变更（set_plan/replan）追加一条，历史不可覆盖。"""
+
+    __tablename__ = "task_plan_revision"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local")
+    task_id: Mapped[str] = mapped_column(ForeignKey("task.id"), index=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    failed_step_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(64), default="local")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class MemoryItem(Base):
+    """M3-C：长期记忆条目。FTS5 索引在 memory_fts（raw 表，见 db.ensure_memory_fts）。"""
+
+    __tablename__ = "memory_item"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    company_id: Mapped[str | None] = mapped_column(ForeignKey("company.id"), nullable=True, index=True)
+    # employee=员工私有；project=项目（公司）内共享；company=全公司共享
+    scope: Mapped[str] = mapped_column(String(16), default="employee", index=True)
+    employee_id: Mapped[str | None] = mapped_column(ForeignKey("employee.id"), nullable=True, index=True)
+    project_task_id: Mapped[str | None] = mapped_column(ForeignKey("task.id"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(16), default="note")
+    title: Mapped[str] = mapped_column(String(200), default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    content_hash: Mapped[str] = mapped_column(String(64), default="")
+    tags: Mapped[dict] = mapped_column(JSON, default=list)
+    source_task_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_agent_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    promoted_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(64), default="local")
+    created_by_type: Mapped[str] = mapped_column(String(16), default="user")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        # 去重：同一 owner+scope+employee 下内容哈希唯一（active 状态）
+        Index("ix_memory_item_dedup", "owner_id", "scope", "employee_id", "content_hash"),
+    )

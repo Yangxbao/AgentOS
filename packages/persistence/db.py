@@ -37,10 +37,40 @@ def make_engine(db_url: str | None = None) -> Engine:
 _session_factory: sessionmaker[Session] | None = None
 
 
+# 普通 FTS5 表（自存文本副本，支持删除/重建）；rowid 与 memory_item.rowid 对齐
+MEMORY_FTS_DDL = "CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(title, content, tags)"
+
+
+def ensure_memory_fts(engine: Engine) -> bool:
+    """尽力创建 FTS5 虚拟表；失败（编译不含 FTS5）返回 False，检索降级为 LIKE。"""
+    try:
+        from sqlalchemy import text
+
+        with engine.begin() as conn:
+            conn.execute(text(MEMORY_FTS_DDL))
+        return True
+    except Exception:  # noqa: BLE001 - FTS5 不可用时功能降级，不阻塞启动
+        return False
+
+
+def memory_fts_available(engine: Engine) -> bool:
+    try:
+        from sqlalchemy import inspect, text
+
+        if "memory_fts" not in inspect(engine).get_table_names():
+            return False
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1 FROM memory_fts LIMIT 1"))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def init_db(db_url: str | None = None) -> Engine:
     global _session_factory
     engine = make_engine(db_url)
     Base.metadata.create_all(engine)
+    ensure_memory_fts(engine)
     _session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     return engine
 

@@ -221,7 +221,16 @@ async def _execute(session: Session, task: Task, run: TaskRun) -> str:
             session.expire_all()
             run = session.get(TaskRun, run.id)
             task = session.get(Task, task.id)
-            return run.state  # awaiting_approval
+            # 顶层工具审批挂起由 _suspend_for_tool_approval 落状态；
+            # M3-B 嵌套子计划内挂起会沿异常上传到这里，由父 run/task 统一转 awaiting
+            if run.state != "awaiting_approval":
+                run.state = "awaiting_approval"
+                run.ended_at = _now()
+            if task.state != "awaiting_approval":
+                task.state = "awaiting_approval"
+                task.version = (task.version or 1) + 1
+            session.commit()
+            return "awaiting_approval"
 
         failures = [item for item in results if isinstance(item, BaseException)]
         session.expire_all()
@@ -429,8 +438,273 @@ async def _run_step(
     lock: asyncio.Lock,
     child_id: str | None,
 ) -> dict:
-    """执行单个步骤；独立 session，写段加锁。"""
+    """执行单个步骤（M3-B 调度器）：子任务有计划 → 递归委托；否则单步模型/工具执行。"""
     session = get_session()
+    try:
+        task = session.get(Task, task_id)
+        run = session.get(TaskRun, run_id)
+        if task is None or run is None:
+            raise DomainError("NOT_FOUND", "任务或执行不存在", 404)
+        child = session.get(Task, child_id) if child_id else None
+        if child is not None and (child.plan or {}).get("steps"):
+            return await _run_nested_step(
+                session, owner_id=owner_id, task=task, run=run,
+                child=child, step=step, mode=mode, lock=lock,
+            )
+        return await _run_single_step(
+            session, owner_id=owner_id, task_id=task_id, run_id=run_id,
+            step=step, mode=mode, lock=lock, child_id=child_id,
+        )
+    finally:
+        session.close()
+
+
+def _transition_child_to_running(session: Session, child: Task) -> None:
+    """子任务进入 running（走状态机合法迁移：pending 直达，paused/failed 经 queued）。"""
+    if child.state == "running":
+        return
+    if child.state == "pending":
+        st.ensure_transition("pending", "running")
+        child.state = "running"
+        return
+    st.ensure_transition(child.state, "queued")
+    child.state = "queued"
+    st.ensure_transition("queued", "running")
+    child.state = "running"
+
+
+def _enqueue_nested_run(session: Session, owner_id: str, child: Task, mode: str) -> TaskRun:
+    """为子任务创建 nested run（trigger=nested）；检查点继承自其最近一次 run。"""
+    active = session.execute(
+        select(TaskRun).where(
+            TaskRun.task_id == child.id,
+            TaskRun.state.in_(("queued", "running", "awaiting_approval")),
+        )
+    ).scalars().first()
+    if active is not None:
+        # 子任务还有活跃执行（典型：工具审批待人工处理），父步骤暂时无法推进
+        raise RunSuspended()
+
+    last = session.execute(
+        select(TaskRun).where(TaskRun.task_id == child.id).order_by(TaskRun.run_no.desc())
+    ).scalars().first()
+    checkpoint = (last.checkpoint or {}) if last is not None else {}
+    previous_run_id = last.id if last is not None else None
+    run_no = session.execute(
+        select(func.max(TaskRun.run_no)).where(TaskRun.task_id == child.id)
+    ).scalar_one() or 0
+    nested_run = TaskRun(
+        id=new_id(), owner_id=owner_id, task_id=child.id, run_no=int(run_no) + 1,
+        trigger="nested", state="running", mode=mode,
+        checkpoint=checkpoint, resumed_from_run_id=previous_run_id,
+    )
+    session.add(nested_run)
+    child.started_at = child.started_at or _now()
+    _transition_child_to_running(session, child)
+    _emit(session, child, nested_run.id, "run.started", {
+        "run_no": nested_run.run_no, "trigger": "nested", "mode": mode,
+    })
+    session.commit()
+    return nested_run
+
+
+def _nested_interrupt(session: Session, child: Task, nested_run: TaskRun, state: str) -> None:
+    """父任务被取消/暂停时，同步收尾 nested run 与子任务状态。"""
+    nested_run.state = state
+    nested_run.ended_at = _now()
+    if child.state not in st.TERMINAL_STATES:
+        child.state = state
+        if state == "cancelled":
+            child.ended_at = _now()
+    session.commit()
+
+
+async def _run_nested_step(
+    session: Session,
+    *,
+    owner_id: str,
+    task: Task,
+    run: TaskRun,
+    child: Task,
+    step: dict,
+    mode: str,
+    lock: asyncio.Lock,
+) -> dict:
+    """递归执行子任务的计划（M3-B）。
+
+    - nested run 驱动子任务自己的波次；检查点写在子 run 上，支持断点续跑；
+    - 祖先链预算/工具上限与根任务共享（budget 树聚合），子任务无法绕过；
+    - 子计划内的工具审批会沿 RunSuspended 向上传导，父任务同步挂起。
+    """
+    budget.check(session, child)
+    steps = steps_of(child)
+
+    # 子任务已完成（重规划/恢复后的重入）：直接聚合既有产出，不再开新 run
+    session.expire_all()
+    child = session.get(Task, child.id)
+    last = session.execute(
+        select(TaskRun).where(TaskRun.task_id == child.id).order_by(TaskRun.run_no.desc())
+    ).scalars().first()
+    if (
+        child.state == "succeeded"
+        and last is not None
+        and {s["id"] for s in steps} <= set((last.checkpoint or {}).get("completed_steps", []))
+    ):
+        checkpoint = dict(last.checkpoint or {})
+        outputs = checkpoint.get("outputs") or {}
+        content = ""
+        for nested_step in reversed(steps):
+            item = outputs.get(nested_step["id"]) or {}
+            if item.get("content"):
+                content = item["content"]
+                break
+        last_agent_run_id = checkpoint.get("last_agent_run_id")
+        async with lock:
+            session.expire_all()
+            fresh_run = session.get(TaskRun, run.id)
+            parent_checkpoint = dict(fresh_run.checkpoint or {})
+            parent_checkpoint.setdefault("completed_steps", [])
+            parent_checkpoint.setdefault("outputs", {})
+            if step["id"] not in parent_checkpoint["completed_steps"]:
+                parent_checkpoint["completed_steps"].append(step["id"])
+            parent_checkpoint["outputs"][step["id"]] = {
+                "agent_run_id": last_agent_run_id,
+                "employee_id": child.assignee_employee_id,
+                "content": content[:8000],
+                "nested_run_id": last.id,
+            }
+            parent_checkpoint["last_agent_run_id"] = last_agent_run_id
+            fresh_run.checkpoint = parent_checkpoint
+            session.commit()
+        return {"step_id": step["id"], "agent_run_id": last_agent_run_id, "content": content}
+
+    nested_run = _enqueue_nested_run(session, owner_id, child, mode)
+    try:
+        waves = topological_waves(steps)
+        child_map = _child_map(session, child)
+        last_agent_run_id = None
+        for wave in waves:
+            # 波次边界：结束读事务、重读外部请求（与父层同语义）
+            session.commit()
+            session.expire_all()
+            task = session.get(Task, task.id)
+            child = session.get(Task, child.id)
+            nested_run = session.get(TaskRun, nested_run.id)
+            if task.cancel_requested or task.pause_requested:
+                state = "cancelled" if task.cancel_requested else "paused"
+                _nested_interrupt(session, child, nested_run, state)
+                return {"step_id": step["id"], "interrupted": True}
+
+            completed_ids = set((nested_run.checkpoint or {}).get("completed_steps", []))
+            ready = [s for s in wave if s["id"] not in completed_ids]
+            if not ready:
+                continue
+            coros = [
+                _run_step(
+                    owner_id=owner_id,
+                    task_id=child.id,
+                    run_id=nested_run.id,
+                    step=gs,
+                    mode=mode,
+                    lock=lock,
+                    child_id=(child_map.get(gs["id"]).id if child_map.get(gs["id"]) else None),
+                )
+                for gs in ready
+            ]
+            results = await asyncio.gather(*coros, return_exceptions=True)
+
+            if any(isinstance(item, RunSuspended) for item in results):
+                session.expire_all()
+                nested_run = session.get(TaskRun, nested_run.id)
+                child = session.get(Task, child.id)
+                if nested_run.state != "awaiting_approval":
+                    nested_run.state = "awaiting_approval"
+                    nested_run.ended_at = _now()
+                if child.state != "awaiting_approval":
+                    child.state = "awaiting_approval"
+                session.commit()
+                raise RunSuspended()
+
+            failures = [item for item in results if isinstance(item, BaseException)]
+            if failures:
+                raise failures[0]
+
+            session.expire_all()
+            nested_run = session.get(TaskRun, nested_run.id)
+            last_agent_run_id = (nested_run.checkpoint or {}).get("last_agent_run_id") or last_agent_run_id
+
+        # 子计划全部完成：nested run 成功、子任务成功，聚合成父步骤结果
+        session.expire_all()
+        nested_run = session.get(TaskRun, nested_run.id)
+        checkpoint = dict(nested_run.checkpoint or {})
+        outputs = checkpoint.get("outputs") or {}
+        content = ""
+        for nested_step in reversed(steps):
+            item = outputs.get(nested_step["id"]) or {}
+            if item.get("content"):
+                content = item["content"]
+                break
+        last_agent_run_id = checkpoint.get("last_agent_run_id") or last_agent_run_id
+        nested_run.state = "succeeded"
+        nested_run.ended_at = _now()
+        child = session.get(Task, child.id)
+        child.state = "succeeded"
+        child.ended_at = _now()
+        child.result = {"content": content[:4000], "agent_run_id": last_agent_run_id}
+        session.commit()
+
+        async with lock:
+            session.expire_all()
+            fresh_run = session.get(TaskRun, run.id)
+            parent_checkpoint = dict(fresh_run.checkpoint or {})
+            parent_checkpoint.setdefault("completed_steps", [])
+            parent_checkpoint.setdefault("outputs", {})
+            if step["id"] not in parent_checkpoint["completed_steps"]:
+                parent_checkpoint["completed_steps"].append(step["id"])
+            parent_checkpoint["outputs"][step["id"]] = {
+                "agent_run_id": last_agent_run_id,
+                "employee_id": child.assignee_employee_id,
+                "content": content[:8000],
+                "nested_run_id": nested_run.id,
+            }
+            parent_checkpoint["last_agent_run_id"] = last_agent_run_id
+            fresh_run.checkpoint = parent_checkpoint
+            session.commit()
+        return {"step_id": step["id"], "agent_run_id": last_agent_run_id, "content": content}
+    except Exception as exc:  # noqa: BLE001 - 失败传播前先落子任务终态
+        session.rollback()
+        try:
+            nested_run = session.get(TaskRun, nested_run.id)
+            child_row = session.get(Task, child.id)
+            code = getattr(exc, "code", "EXECUTION_FAILED")
+            if nested_run is not None and nested_run.state == "running":
+                nested_run.state = "failed"
+                nested_run.error = f"{code}: {str(exc)[:300]}"[:500]
+                nested_run.ended_at = _now()
+            if child_row is not None and child_row.state == "running":
+                child_row.state = "failed"
+                child_row.ended_at = _now()
+                child_row.result = {
+                    "error": {"code": code, "message": str(exc)[:300]},
+                }
+            session.commit()
+        except Exception:  # noqa: BLE001
+            session.rollback()
+        raise
+
+
+async def _run_single_step(
+    session: Session,
+    *,
+    owner_id: str,
+    task_id: str,
+    run_id: str,
+    step: dict,
+    mode: str,
+    lock: asyncio.Lock,
+    child_id: str | None,
+) -> dict:
+    """执行单个步骤（模型/工具路径）；session 由调用方管理，写段加锁。"""
     started = _now()
     try:
         task = session.get(Task, task_id)
@@ -646,4 +920,4 @@ async def _run_step(
             "usage": (usage.to_dict() if usage else {}),
         }
     finally:
-        session.close()
+        pass  # session 由 _run_step 调度器创建并统一关闭

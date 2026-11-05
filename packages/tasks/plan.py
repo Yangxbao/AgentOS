@@ -37,10 +37,13 @@ def normalize_plan(session: Session, owner_id: str, task) -> dict:
 
     if len(steps) > MAX_STEPS:
         raise DomainError("TASK_PLAN_INVALID", f"步骤数不能超过 {MAX_STEPS}", 422)
-    if task.depth + 1 > MAX_DEPTH:
+    # M3-B：深度上限由后端强制（任务级 max_depth 可在 1..4 内配置，默认 3）
+    max_depth = getattr(task, "max_depth", None) or MAX_DEPTH
+    max_depth = max(1, min(int(max_depth), 4))
+    if task.depth + 1 > max_depth:
         raise DomainError(
-            "TASK_PLAN_TOO_DEEP", f"子任务层级不能超过 {MAX_DEPTH} 层", 409,
-            {"depth": task.depth},
+            "TASK_DEPTH_EXCEEDED", f"任务层级不能超过 {max_depth} 层", 409,
+            {"depth": task.depth, "max_depth": max_depth},
         )
 
     company = session.get(Company, task.company_id)
@@ -56,9 +59,28 @@ def normalize_plan(session: Session, owner_id: str, task) -> dict:
         if step_id in seen:
             raise DomainError("TASK_PLAN_INVALID", f"步骤 id 重复：{step_id}", 422)
         seen.add(step_id)
-        employee_id = item.get("employee_id") or task.assignee_employee_id
+        # M3-B 动态分配：步骤可省略 employee_id，按能力/工具/风险自动选人并记录 decision
+        auto_assigned = False
+        decision_id: str | None = None
+        employee_id = item.get("employee_id")
         if not employee_id:
-            raise DomainError("TASK_PLAN_INVALID", f"步骤 {step_id} 缺少执行员工", 422)
+            from packages.permissions.assignment import preview_assignment
+
+            preview = preview_assignment(session, owner_id, task.company_id, {
+                "risk_level": getattr(task, "risk_level", "low") or "low",
+                "required_tools": list(item.get("tools") or []),
+                "context": {"step_id": step_id, "plan_auto_assign": True},
+            })
+            candidates = preview.get("candidates") or []
+            if not candidates:
+                raise DomainError(
+                    "TASK_PLAN_INVALID",
+                    f"步骤 {step_id} 未指定员工且无可自动分配的候选（需能力/工具匹配）",
+                    422, {"step_id": step_id, "excluded": preview.get("excluded") or []},
+                )
+            employee_id = candidates[0]["employee_id"]
+            auto_assigned = True
+            decision_id = preview.get("decision_id")
         employee = _employee(session, owner_id, task.company_id, employee_id, "执行员工")
         instruction = str(item.get("instruction") or "").strip()
         if not instruction:
@@ -82,6 +104,8 @@ def normalize_plan(session: Session, owner_id: str, task) -> dict:
             "title": str(item.get("title") or "").strip(),
             "employee_id": employee.id,
             "employee_name": employee.name,
+            "auto_assigned": auto_assigned,
+            "assignment_decision_id": decision_id,
             "instruction": instruction,
             "deliverable": str(item.get("deliverable") or "").strip(),
             "depends_on": list(dict.fromkeys(depends)),

@@ -9,6 +9,7 @@ from apps.api.audit import audit_action
 from apps.api.deps import ActorContext, PageParams, get_actor, get_db
 from apps.api.schemas.tasks import (
     DecomposeRequest,
+    ReplanRequest,
     TaskCreate,
     TaskPlanInput,
     TaskUpdate,
@@ -163,6 +164,42 @@ def set_plan_endpoint(
         detail={"steps": [step["id"] for step in (task.plan or {}).get("steps", [])]},
     )
     return _task_detail(db, actor.owner_id, task)
+
+
+@router.post("/tasks/{task_id}/replan")
+def replan_endpoint(
+    task_id: str,
+    payload: ReplanRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor),
+):
+    """M3-B：失败/待返工任务重规划（≤3 次），只重置失败步骤及其下游。"""
+    result = service.replan(
+        db, actor.owner_id, task_id,
+        steps=[step.model_dump() for step in payload.steps],
+        reason=payload.reason, failed_step_id=payload.failed_step_id,
+    )
+    audit_action(
+        db, actor, request, action="task.replan", target_type="task", target_id=task_id,
+        detail={
+            "revision": result["plan_revision"],
+            "replan_count": result["replan_count"],
+            "failed_step_id": payload.failed_step_id,
+        },
+    )
+    _kick(request)
+    return result
+
+
+@router.get("/tasks/{task_id}/plan-revisions")
+def plan_revisions_endpoint(
+    task_id: str,
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor),
+):
+    items = service.plan_revisions_of(db, actor.owner_id, task_id)
+    return {"items": items, "total": len(items)}
 
 
 @router.post("/tasks/{task_id}/decompose")

@@ -218,6 +218,13 @@ async def run_tool_loop(
                 f"工具调用次数达到上限 {max_tool_calls}，已终止",
                 409, {"max_tool_calls": max_tool_calls, "tool_calls": call_index},
             )
+        # M3-B：任务树总工具调用上限（防递归失控扩张，后端强制）
+        if budget.tree_tool_calls(session, task) >= budget.TREE_TOOL_CALL_LIMIT:
+            raise DomainError(
+                "TOOL_LOOP_EXCEEDED",
+                f"任务树总工具调用已达上限 {budget.TREE_TOOL_CALL_LIMIT}，已终止",
+                409, {"tree_tool_calls": budget.tree_tool_calls(session, task)},
+            )
         response = await adapter.chat(messages, tools=schemas, tool_choice="auto")
         usage_items.append(response.get("usage"))
         # M3-E 预算检查：本轮模型调用后立即核算（含尚未落库的本轮消耗）
