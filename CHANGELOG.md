@@ -2,6 +2,32 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased] - M2 任务闭环
+
+### Added
+- **任务中心**：任务/子任务统一实体；公司/部门/执行人/审核人、优先级、截止、交付标准、风险、预算、执行模式；状态机与乐观锁
+- **执行引擎**：DB 队列 + 后台 TaskRunner；原子认领；部分唯一索引 `uq_task_run_active` 防重复执行；启动恢复（running → interrupted → paused）
+- **执行前权限闸门**：在职/同公司、模型可用、风险 ≤ 有效上限、工具 ⊆ 授权、预算估算；不通过则不调模型
+- **Mock 执行体**：确定性输出、可配置延迟与故障注入；`usage_record.billable=false`、cost=0，绝不冒充真实调用
+- **多 Agent 协作**：依赖 DAG + 拓扑波次并行 + `agent_handoff` 交接；管理者自动拆分（LLM JSON + 严格校验）
+- **人工审批**：`task_approval`；before_run / after_run 双关卡；批准/驳回/要求修改；回退指定步骤；返工上限
+- **检查点恢复**：步骤级 `checkpoint`，恢复只跑未完成步骤
+- **可观测性**：任务时间线、Agent 执行详情、Token/成本聚合、监控摘要；`/monitor` 页面
+- 迁移 `m2_task_center`（task +25 列、task_run +6 列、agent_run +5 列、2 张新表）
+- 前端：任务中心、任务详情（计划/审批/时间线/成本）、执行监控
+- E2E：`scripts/e2e_m2.py`（Mock 13 项；`--real` 增加一次最小真实调用）
+- 测试：新增 37 个（任务 8 / 执行 10 / 协作 7 / 审批 6 / 监控 6）
+
+### Changed
+- `LiteLLMAdapter` 支持 `max_tokens`；`AGENTOS_MAX_TOKENS` 控制真实调用上限（默认 1024，E2E 用 96）
+- SQLite 连接增加 `timeout=30`，降低并行步骤写入锁冲突
+- 前端首页改为任务中心；导航新增「执行监控」
+- API 版本标识 `0.2.0-m2`
+
+### Notes
+- 真实模型仅验证 2 次最小调用（DeepSeek，每次 73+5 tokens，$0.00001395），未新增付费服务
+- 浏览器可视化验收未执行（未安装 Playwright，按约束不安装）；构建与 API 合同验证通过
+
 ## [Unreleased] - M1 收尾（P1 清理）
 
 ### Added

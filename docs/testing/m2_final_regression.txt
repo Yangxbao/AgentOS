@@ -1,0 +1,43 @@
+AgentOS M2 最终回归（真实执行）
+时间：2026-11-05 20:11:27 +0800
+Git HEAD：2a5978e
+
+### 1) pytest tests/ -q
+........................................................................ [ 56%]
+........................................................                 [100%]
+128 passed in 33.26s
+pytest_exit=0
+
+### 2) ruff
+All checks passed!
+ruff_exit=0
+
+### 3) npm run build
+computing gzip size...
+dist/index.html                   0.45 kB │ gzip:   0.29 kB
+dist/assets/index-BF6zrjfC.css   32.38 kB │ gzip:   6.63 kB
+dist/assets/index-Dpfi13ur.js   467.02 kB │ gzip: 144.79 kB
+
+✓ built in 813ms
+build_exit=0
+
+### 4) alembic current
+m2_task_center (head)
+
+### 5) 真实库数据
+tables: 18
+  task: 4
+  task_run: 4
+  agent_run: 4
+  usage_record: 4
+  company: 0
+  employee: 0
+  task_approval: 0
+  agent_handoff: 0
+revision: m2_task_center
+
+### 6) 提示词对账（只读）
+orphan_files: 0
+missing_files: 0
+hash_mismatch: 0
+reconcile_exit=0
