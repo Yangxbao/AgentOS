@@ -61,6 +61,7 @@ class LiteLLMAdapter:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         max_retries: int = 2,
+        max_tokens: int = 2048,
     ):
         self.model = model
         self.fallback_model = fallback_model
@@ -68,6 +69,7 @@ class LiteLLMAdapter:
         self.api_key = api_key
         self.base_url = base_url
         self.max_retries = max_retries
+        self.max_tokens = max_tokens
         self._handles: dict[str, dict[str, Any]] = {}
 
     async def connect(self) -> None:
@@ -122,6 +124,7 @@ class LiteLLMAdapter:
                 state["messages"],
                 fallbacks=[self.fallback_model] if self.fallback_model else None,
                 timeout=self.timeout,
+                max_tokens=self.max_tokens,
                 api_key=self.api_key,
                 base_url=self.base_url,
                 num_retries=self.max_retries,

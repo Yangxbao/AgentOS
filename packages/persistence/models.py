@@ -20,6 +20,11 @@ class Base(DeclarativeBase):
 
 
 class Task(Base):
+    """任务/子任务统一实体（M2）。
+
+    `state` 是唯一权威状态；M0 遗留任务 company_id 为 NULL，不回填、不改状态。
+    """
+
     __tablename__ = "task"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
@@ -30,8 +35,45 @@ class Task(Base):
     state: Mapped[str] = mapped_column(String(32), default="draft", index=True)
     rework_count: Mapped[int] = mapped_column(Integer, default=0)
     max_rework: Mapped[int] = mapped_column(Integer, default=3)
+
+    company_id: Mapped[str | None] = mapped_column(ForeignKey("company.id"), nullable=True)
+    department_id: Mapped[str | None] = mapped_column(ForeignKey("department.id"), nullable=True)
+    parent_task_id: Mapped[str | None] = mapped_column(ForeignKey("task.id"), nullable=True)
+    root_task_id: Mapped[str | None] = mapped_column(ForeignKey("task.id"), nullable=True)
+    depth: Mapped[int] = mapped_column(Integer, default=0)
+    assignee_employee_id: Mapped[str | None] = mapped_column(
+        ForeignKey("employee.id"), nullable=True
+    )
+    reviewer_employee_id: Mapped[str | None] = mapped_column(
+        ForeignKey("employee.id"), nullable=True
+    )
+    priority: Mapped[str] = mapped_column(String(16), default="normal")
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deliverable: Mapped[str] = mapped_column(Text, default="")
+    instruction: Mapped[str] = mapped_column(Text, default="")
+    context: Mapped[dict] = mapped_column(JSON, default=dict)
+    plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    approval_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    approval_stage: Mapped[str] = mapped_column(String(16), default="before_run")
+    risk_level: Mapped[str] = mapped_column(String(16), default="low")
+    budget_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    execution_mode: Mapped[str] = mapped_column(String(16), default="auto")
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    pause_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[str] = mapped_column(String(64), default="local")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        Index("ix_task_company_state", "company_id", "state"),
+        Index("ix_task_assignee_state", "assignee_employee_id", "state"),
+        Index("ix_task_parent", "parent_task_id"),
+    )
 
 
 class TaskRun(Base):
@@ -44,14 +86,33 @@ class TaskRun(Base):
     task_id: Mapped[str] = mapped_column(ForeignKey("task.id"), index=True)
     run_no: Mapped[int] = mapped_column(Integer, default=1)
     trigger: Mapped[str] = mapped_column(String(16), default="manual")
-    state: Mapped[str] = mapped_column(String(16), default="running")  # running|succeeded|failed|cancelled
+    # queued|running|succeeded|failed|cancelled|paused|awaiting_approval|interrupted
+    state: Mapped[str] = mapped_column(String(16), default="running")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    checkpoint: Mapped[dict] = mapped_column(JSON, default=dict)
+    mode: Mapped[str] = mapped_column(String(16), default="real")
+    worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resumed_from_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        # 防重复执行：同一任务同时最多一条活跃 run（SQLite/PostgreSQL 部分索引）
+        Index(
+            "uq_task_run_active",
+            "task_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued','running')"),
+            postgresql_where=text("state IN ('queued','running')"),
+        ),
+    )
+
 
 class AgentRun(Base):
-    """某员工在一次 task_run 中的执行单元。"""
+    """某员工在一次 task_run 中的一个执行单元（M2：按 step 拆分）。"""
 
     __tablename__ = "agent_run"
 
@@ -70,6 +131,12 @@ class AgentRun(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    step_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    prompt_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model_connection_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class TaskEvent(Base):
@@ -304,6 +371,44 @@ class AuditLog(Base):
     target_id: Mapped[str] = mapped_column(String(64), default="", index=True)
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
     request_id: Mapped[str] = mapped_column(String(32), default="-")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class TaskApproval(Base):
+    """人工审批（只增；决策后不再变更，重复决策被拒）。"""
+
+    __tablename__ = "task_approval"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("task.id"), index=True)
+    task_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    gate: Mapped[str] = mapped_column(String(16), default="before_run")
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    requested_by: Mapped[str] = mapped_column(String(64), default="local")
+    reviewer_employee_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    comment: Mapped[str] = mapped_column(Text, default="")
+    rewind_step_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    context: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AgentHandoff(Base):
+    """Agent 之间的上下文交接记录（只增）。"""
+
+    __tablename__ = "agent_handoff"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local", index=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("task.id"), index=True)
+    task_run_id: Mapped[str] = mapped_column(ForeignKey("task_run.id"), index=True)
+    from_agent_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    to_agent_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    step_id: Mapped[str] = mapped_column(String(32), default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 

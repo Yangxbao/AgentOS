@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import logging
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,6 +25,7 @@ load_dotenv(ROOT / ".env")
 
 from apps.api.errors import RequestIdMiddleware, register_exception_handlers  # noqa: E402
 from apps.api.routers import (  # noqa: E402
+    approvals,
     companies,
     config_io,
     departments,
@@ -31,12 +33,17 @@ from apps.api.routers import (  # noqa: E402
     governance,
     legacy,
     model_connections,
+    monitor,
     positions,
     prompts,
+    tasks,
 )
 from apps.api.security.local_guard import LocalGuardMiddleware, config_from_env  # noqa: E402
+from packages.execution.runner import TaskRunner  # noqa: E402
 from packages.persistence import init_db  # noqa: E402
 from packages.persistence.db import ensure_schema  # noqa: E402
+
+logger = logging.getLogger("agentos.api")
 
 
 @asynccontextmanager
@@ -44,11 +51,20 @@ async def lifespan(app: FastAPI):
     # 空库才引导建表；已有库必须已迁移（禁止 create_all 掩盖缺失迁移）
     ensure_schema()
     init_db()
-    yield
+    runner: TaskRunner = app.state.runner
+    recovered = runner.recover()
+    if recovered["interrupted_runs"]:
+        logger.warning("上次进程遗留 %s 条执行，已标记 interrupted", recovered["interrupted_runs"])
+    await runner.start()
+    try:
+        yield
+    finally:
+        await runner.stop()
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="AgentOS API", version="0.1.0-m1b1", lifespan=lifespan)
+    app = FastAPI(title="AgentOS API", version="0.2.0-m2", lifespan=lifespan)
+    app.state.runner = TaskRunner()
 
     guard_config = config_from_env()
 
@@ -75,6 +91,9 @@ def create_app() -> FastAPI:
         prompts.router,
         governance.router,
         config_io.router,
+        tasks.router,
+        approvals.router,
+        monitor.router,
     ):
         app.include_router(router, prefix="/api/v1")
     return app

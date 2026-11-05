@@ -22,7 +22,8 @@ def make_engine(db_url: str | None = None) -> Engine:
         db_path = url.replace("sqlite:///", "")
         if db_path != ":memory:":
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(url, future=True)
+    connect_args = {"timeout": 30} if url.startswith("sqlite") else {}
+    engine = create_engine(url, future=True, connect_args=connect_args)
     if url.startswith("sqlite"):
         @event.listens_for(engine, "connect")
         def _set_sqlite_pragma(dbapi_conn, _record):  # noqa: ANN001
