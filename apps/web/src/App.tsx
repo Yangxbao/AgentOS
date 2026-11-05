@@ -9,6 +9,7 @@ import AssignmentPage from './pages/AssignmentPage'
 import AuditPage from './pages/AuditPage'
 import ImportExportPage from './pages/ImportExportPage'
 import ModelConnectionsPage from './pages/ModelConnectionsPage'
+import MemoryPage from './pages/MemoryPage'
 import MonitorPage from './pages/MonitorPage'
 import OrgPage from './pages/OrgPage'
 import TaskDetailPage from './pages/TaskDetailPage'
@@ -63,6 +64,7 @@ function Shell() {
           <NavItem to="/assignments">派工预览</NavItem>
           <NavItem to="/settings/workspaces">工作区</NavItem>
           <NavItem to="/settings/tools">工具策略</NavItem>
+          <NavItem to="/settings/memory">记忆中心</NavItem>
           <NavItem to="/settings/models">模型连接</NavItem>
           <NavItem to="/settings/import-export">导入导出</NavItem>
           <NavItem to="/settings/audit">审计</NavItem>
@@ -84,6 +86,7 @@ function Shell() {
           <Route path="/employees/:id" element={<EmployeeDetailPage />} />
           <Route path="/settings/workspaces" element={<WorkspacesPage />} />
           <Route path="/settings/tools" element={<ToolPolicyPage />} />
+          <Route path="/settings/memory" element={<MemoryPage />} />
           <Route path="/settings/models" element={<ModelConnectionsPage />} />
           <Route path="/assignments" element={<AssignmentPage />} />
           <Route path="/settings/import-export" element={<ImportExportPage />} />

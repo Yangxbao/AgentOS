@@ -30,7 +30,7 @@ from .workspaces import resolve_grant
 
 DEFAULT_TOOL_POLICY: dict = {
     "enabled": True,
-    "categories": {"file_read": True, "file_write": True, "network": False, "shell": False},
+    "categories": {"file_read": True, "file_write": True, "network": False, "shell": False, "memory": False},
     "allowed_tools": [
         name for name, spec in REGISTRY.items() if spec.enabled and spec.enabled_by_default
     ],
@@ -102,7 +102,7 @@ def validate_policy_patch(patch: dict) -> dict:
         categories = patch["categories"]
         if not isinstance(categories, dict):
             raise DomainError("VALIDATION_ERROR", "categories 必须是对象", 422)
-        bad = sorted(set(categories) - {"file_read", "file_write", "network", "shell"})
+        bad = sorted(set(categories) - {"file_read", "file_write", "network", "shell", "memory"})
         if bad:
             raise DomainError("VALIDATION_ERROR", f"未知类别：{', '.join(bad)}", 422)
         for key, value in categories.items():

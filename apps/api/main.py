@@ -32,6 +32,7 @@ from apps.api.routers import (  # noqa: E402
     employees,
     governance,
     legacy,
+    memory,
     model_connections,
     monitor,
     positions,
@@ -98,6 +99,7 @@ def create_app() -> FastAPI:
         monitor.router,
         tools.router,
         system.router,
+        memory.router,
     ):
         app.include_router(router, prefix="/api/v1")
     return app

@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from packages.agent_core.adapter import collect_final
+from packages.memory.service import retrieve_for_step
 from packages.persistence import get_session
 from packages.persistence.models import (
     AgentHandoff,
@@ -739,6 +740,10 @@ async def _run_single_step(
         checkpoint_snapshot = dict(run.checkpoint or {})
         context = _context_text(checkpoint_snapshot, step)
         instruction = step["instruction"]
+        # M3-C：相关记忆作为数据块注入用户消息（员工视角隔离；无记忆则降级为空）
+        memory_block = retrieve_for_step(session, task=task, employee=employee, step=step)
+        if memory_block:
+            instruction = f"{memory_block}\n\n{instruction}"
         if context:
             instruction = f"{instruction}\n\n请基于以下上游产出继续：\n{context}"
 

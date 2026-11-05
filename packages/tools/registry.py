@@ -12,7 +12,7 @@ from typing import Awaitable, Callable
 
 from packages.shared.errors import DomainError
 
-from . import fs, http, shell
+from . import fs, http, memory, shell
 from .context import ToolContext
 
 Handler = Callable[[ToolContext, dict], Awaitable[dict]]
@@ -23,7 +23,7 @@ RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
-    category: str  # file_read | file_write | network | shell
+    category: str  # file_read | file_write | network | shell | memory
     description: str
     params: dict
     risk: str
@@ -207,6 +207,44 @@ SPECS: list[ToolSpec] = [
         handler=shell.run,
         enabled=False,
         enabled_by_default=False,
+    ),
+    ToolSpec(
+        name="memory.remember",
+        category="memory",
+        description="把一条经验/事实写入你自己的私有记忆（employee 作用域），供以后检索。",
+        params={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "maxLength": 200, "description": "一句话标题"},
+                "content": {"type": "string", "maxLength": 4000, "description": "记忆内容（纯文本）"},
+                "kind": {"type": "string", "enum": ["fact", "decision", "artifact", "summary", "note"]},
+                "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
+            },
+            "required": ["title", "content"],
+        },
+        risk="low",
+        side_effects="write",
+        idempotent=False,
+        handler=memory.remember,
+        timeout_s=10,
+    ),
+    ToolSpec(
+        name="memory.search",
+        category="memory",
+        description="检索你有权访问的记忆（自己的私有记忆 + 所在公司的共享记忆）。",
+        params={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "maxLength": 400, "description": "检索关键词"},
+                "top_k": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+            },
+            "required": ["query"],
+        },
+        risk="low",
+        side_effects="none",
+        idempotent=True,
+        handler=memory.search,
+        timeout_s=10,
     ),
 ]
 
