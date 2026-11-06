@@ -100,6 +100,11 @@
 - **监控页 `/monitor`**（增强）：新增"工具执行（全局）"卡片——显示状态 + **一键紧急停止/恢复按钮**（调 kill switch API，带审计）；"拒绝原因 Top N"；"预算使用率"表格（进行中任务、超 90% 红色预警）
 - **记忆中心 `/settings/memory`**（新增）：作用域过滤、FTS 检索框、写入表单（项目/公司作用域）、提升（employee→project/company）、删除；说明 Agent 私有记忆需提升才共享
 - 导航新增"记忆中心"入口；构建 496.68 kB（gzip 150.95 kB），tsc 类型检查通过
+- **工具执行开关反馈修复（2026-11-07，POST 200 但状态不变）**：根因是运行进程 env_enabled=false
+  （.env 未配置 AGENTOS_TOOL_EXECUTION），POST {enabled:true} 是静默 no-op（kill 本来就 false）。
+  修复：① 后端 env off 时请求开启返回 **409 TOOL_EXECUTION_BLOCKED_BY_ENV**（含修复指引，审计不留痕），
+  停止请求永远可用；② 前端 mutation 补 onError + 成功/失败 Toast + 返回状态一致性校验（此前错误静默）。
+  运维语义：env off 时 kill 一旦打开只能重启后端复位（API 409 拒绝清除，功能上无差异——两种状态工具都关）。
 - **开发态同源代理修复（2026-11-06，UNTRUSTED_REQUEST 403）**：此前前端 `client.ts` 默认直连
   `http://127.0.0.1:8000`，从 `localhost:5173` 页面发起的写请求被浏览器标记 `Sec-Fetch-Site: cross-site`
   （localhost 与 127.0.0.1 是不同 site，**与端口无关**），被 LocalGuard 正确拒绝（403）；
@@ -123,7 +128,7 @@
 ## 7. 自动化测试原始结果（2026-11-06 实测，存档 `docs/testing/m3bdf_final_regression.txt`）
 
 ```
-pytest tests/ -q            → 335 passed, 3 skipped（3 skipped 为无权限环境 symlink 用例）
+pytest tests/ -q            → 339 passed, 3 skipped（3 skipped 为无权限环境 symlink 用例）
 ruff check ...              → All checks passed!
 npm run build（tsc -b）      → ✓ 110 modules，496.68 kB (gzip 150.95 kB)，built in 205ms
 alembic current             → m3b_memory_workers (head)

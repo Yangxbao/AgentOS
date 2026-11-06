@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from apps.api.deps import ActorContext, get_actor, get_db
 from packages.permissions.audit import write_audit
+from packages.shared.errors import DomainError
 from packages.tools.policy import set_tool_execution, tool_execution_state
 
 router = APIRouter(tags=["system"])
@@ -46,6 +47,19 @@ def set_tool_execution_endpoint(
     db: Session = Depends(get_db),
     actor: ActorContext = Depends(get_actor),
 ):
+    state = tool_execution_state()
+    # 诚实语义：进程级紧急开关只能"停止"（在 env 之上加杀），不能强制开启 env=off 的系统。
+    # env off 时请求 enabled=true 必然是静默 no-op——明确拒绝并给出修复指引，
+    # 而不是返回 200 + enabled=false 让前端永远显示"关闭"。
+    if payload.enabled and not state["env_enabled"]:
+        raise DomainError(
+            "TOOL_EXECUTION_BLOCKED_BY_ENV",
+            "全局工具执行由环境变量 AGENTOS_TOOL_EXECUTION 控制（当前 off）。"
+            "进程级紧急开关只能停止执行，无法强制开启；"
+            "请在 .env 设置 AGENTOS_TOOL_EXECUTION=on 并重启后端后重试。",
+            409,
+            {"state": state},
+        )
     set_tool_execution(payload.enabled)
     state = tool_execution_state()
     write_audit(
