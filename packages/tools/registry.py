@@ -281,12 +281,39 @@ def list_specs() -> list[dict]:
     ]
 
 
+def model_name(name: str) -> str:
+    """真实工具名 → 模型侧名称：`fs.list_dir` → `fs__list_dir`。
+
+    OpenAI 兼容 API（含 DeepSeek）要求 function name 匹配 ^[a-zA-Z0-9_-]{1,64}$，
+    点号不合法；真实模型返回的 tool_calls 用的是模型侧名称，需 from_model_name 还原。
+    现有工具名均为 `x.y` 且不含双下划线，映射双射。
+    """
+    return name.replace(".", "__")
+
+
+_MODEL_NAME_MAP: dict[str, str] = {
+    model_name(name): name for name in REGISTRY
+}
+
+
+def from_model_name(model_side_name: str) -> str | None:
+    """模型侧名称 → 真实工具名；无法映射时返回 None（保持原样由调用方处理）。"""
+    if model_side_name in REGISTRY:
+        return model_side_name
+    return _MODEL_NAME_MAP.get(model_side_name)
+
+
 def model_schemas(tool_names: list[str]) -> list[dict]:
-    """只把已授权的工具 schema 发给模型（模型不知道未授权工具存在）。"""
+    """只把已授权的工具 schema 发给模型（模型不知道未授权工具存在）。
+
+    schema 里的 function.name 使用 model_name()（合法字符集），见 registry.model_name。
+    """
     schemas = []
     for name in tool_names:
         spec = REGISTRY.get(name)
         if spec is None or not spec.enabled:
             continue
-        schemas.append(spec.model_schema())
+        schema = spec.model_schema()
+        schema["function"]["name"] = model_name(spec.name)
+        schemas.append(schema)
     return schemas

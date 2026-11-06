@@ -35,6 +35,7 @@ from packages.tasks import state as st
 from packages.tasks.approvals import create_approval
 from packages.tasks.plan import topological_waves
 from packages.tools.policy import global_tools_enabled
+from packages.tools.workspaces import workspace_brief
 
 from . import budget
 from .adapter_factory import build_adapter
@@ -744,6 +745,20 @@ async def _run_single_step(
         memory_block = retrieve_for_step(session, task=task, employee=employee, step=step)
         if memory_block:
             instruction = f"{memory_block}\n\n{instruction}"
+
+        # 工具路径：仅当员工确实有可用工具时才进入（否则保持 M2 的单次调用语义）
+        tool_ctx = build_tool_context(
+            session, owner_id=owner_id, task=task, run=run, employee=employee,
+            step_id=step["id"],
+        )
+        tools = authorized_tools(tool_ctx) if global_tools_enabled() else []
+        # M3 真实链路：员工可用文件工具时，告知其被授权的工作区（信息补充而非授权，
+        # 服务端五层校验原样保留——真实模型不知道内部 workspace_id，缺这段必然被拒）
+        if tools and any(t.startswith("fs.") for t in tools):
+            brief = workspace_brief(session, owner_id, employee.id)
+            if brief:
+                instruction = f"{instruction}\n\n{brief}"
+
         if context:
             instruction = f"{instruction}\n\n请基于以下上游产出继续：\n{context}"
 
@@ -761,12 +776,6 @@ async def _run_single_step(
         if callable(prepare):
             prepare(instruction)
 
-        # 工具路径：仅当员工确实有可用工具时才进入（否则保持 M2 的单次调用语义）
-        tool_ctx = build_tool_context(
-            session, owner_id=owner_id, task=task, run=run, employee=employee,
-            step_id=step["id"],
-        )
-        tools = authorized_tools(tool_ctx) if global_tools_enabled() else []
         tool_count = 0
         handle = None
         try:

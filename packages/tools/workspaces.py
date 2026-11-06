@@ -278,6 +278,35 @@ def list_grants(session: Session, owner_id: str, workspace_id: str) -> list[dict
     return result
 
 
+def workspace_brief(session: Session, owner_id: str, employee_id: str) -> str:
+    """给模型看的"可用工作区"说明（信息补充，非授权——授权仍在服务端五层校验）。
+
+    真实模型不知道内部生成的 workspace_id，没有这段说明时文件工具必然
+    WORKSPACE_NOT_GRANTED（mock 路径靠指令里的 marker 硬编码 id，掩盖了这一点）。
+    """
+    rows = session.execute(
+        select(Workspace, EmployeeWorkspaceGrant)
+        .join(EmployeeWorkspaceGrant, EmployeeWorkspaceGrant.workspace_id == Workspace.id)
+        .where(
+            Workspace.owner_id == owner_id,
+            EmployeeWorkspaceGrant.employee_id == employee_id,
+            Workspace.status == "active",
+        )
+        .order_by(Workspace.name)
+    ).all()
+    if not rows:
+        return ""
+    lines = [
+        f"- workspace_id: `{workspace.id}`（名称：{workspace.name}，模式：{workspace.mode}）"
+        for workspace, _grant in rows
+    ]
+    newline = "\n"
+    return (
+        "【可用工作区】调用文件工具（fs.*）时必须传 workspace_id 参数，"
+        "只能使用以下已授权工作区（传其他值会被拒绝）：" + newline + newline.join(lines)
+    )
+
+
 def resolve_grant(
     session: Session, owner_id: str, employee_id: str, workspace_id: str, need: str = "read"
 ) -> tuple[Workspace, EmployeeWorkspaceGrant]:

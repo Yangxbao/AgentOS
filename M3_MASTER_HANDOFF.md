@@ -13,6 +13,7 @@
 - **连续拒绝熔断**：同一 run 内连续 3 次工具被拒（无成功结果间隔）→ `paused` + `task.tool_denied_limit`，提示检查授权；计数存 `run.checkpoint.denied_count`，任何非拒绝终态归零
 - **全局 kill switch**：`GET/POST /api/v1/system/tool-execution`；进程级立即生效 + 审计留痕；重启回到 `AGENTOS_TOOL_EXECUTION` 初始值；必需工具+全局关闭 → 任务可读失败（`TOOLS_DISABLED`），不降级假成功
 - **监控统计**：`/monitor` 摘要 + 前端页面新增工具统计、拒绝原因 Top N、预算使用率、开关卡片（一键紧急停止/恢复）
+- **真实模型链路验证（2026-11-07）**：DeepSeek 真实调用 fs.list_dir/fs.read_file 成功（nonce 防编造通过，$0.0005）；连续拒绝熔断在真实链路首次真实生效。详见 docs/acceptance/2026-11-07_真实模型工具调用验证.md
 - ♻️ 单步 8 次上限、工具输出截断（M3-A 既有，回归确认）
 - 修复：审批恢复后 `tool_state` 残留 checkpoint 的 M3-A 隐性 bug
 
@@ -48,7 +49,7 @@
 
 ### 状态分类汇总
 - ✅ 已实现且测试通过：上述全部功能（332 pytest + 13 M2 E2E + 16 M3-F E2E + 29 浏览器验收）
-- 🟡 已实现但未充分验证：**真实模型链路**（LiteLLM 真实 tool_calls/真实计价下的预算熔断——全程 Mock，见 §12/§13）；FTS5 的 bm25 排序质量（只验证了命中/隔离/上限，未验证排序相关性）
+- 🟡 已实现但未充分验证：**真实模型链路**（2026-11-07 单员工只读文件工具已真实验证 ✅ 并修复三层缺陷；多步协作/递归/审批挂起恢复/HTTP 与记忆工具的真实模型行为仍未验证）；FTS5 的 bm25 排序质量（只验证了命中/隔离/上限，未验证排序相关性）
 - ♻️ 已有机制本次回归确认：路径安全、敏感文件拒绝、SSRF/重定向校验、五层权限拒绝码、Shell 禁用、8 次上限、输出截断（M3-A 全部安全测试通过未改动）
 - ⬜ 未实现：M4 及以后（账号体系等）；记忆的 embedding 向量检索（按设计默认关闭，未实现）
 - 🚫 因授权限制未执行：真实模型调用、真实 GitHub/外网访问、Git Push（见 §12）
@@ -122,7 +123,7 @@
 ## 7. 自动化测试原始结果（2026-11-06 实测，存档 `docs/testing/m3bdf_final_regression.txt`）
 
 ```
-pytest tests/ -q            → 332 passed, 3 skipped in 81.62s（3 skipped 为无权限环境 symlink 用例）
+pytest tests/ -q            → 335 passed, 3 skipped（3 skipped 为无权限环境 symlink 用例）
 ruff check ...              → All checks passed!
 npm run build（tsc -b）      → ✓ 110 modules，496.68 kB (gzip 150.95 kB)，built in 205ms
 alembic current             → m3b_memory_workers (head)
@@ -170,7 +171,7 @@ audit_log 2（本会话 kill switch 端点探活产生的两条记录，内容�
 
 ## 11. 已知缺陷和未完成事项（如实陈述）
 
-1. **真实模型链路未验证**（🟡）：预算熔断的真实计价路径、LiteLLM 真实 tool_calls 解析，只验证过 Mock。M3-F 的成本熔断在 mock 下用 Token 预算验证（mock 时 cost 强制写 0 是 M3-E 诚实性规则）；单次调用路径的成本超支只能在**下一个检查点**被拦截（无 per-call 预扣机制）
+1. **真实模型链路**（2026-11-07 部分转 ✅）：单员工只读文件工具链路已真实验证（nonce 防编造通过，$0.0005），过程中发现并修复三层真实链路缺陷（litellm mcp 导入缺陷 / DeepSeek 工具名字符集 / 工作区上下文缺失，见 docs/acceptance/2026-11-07_真实模型工具调用验证.md）；litellm `_skip_mcp_handler` 补丁待升级后移除（有回归测试守护）。仍 🟡：多步协作/递归/审批挂起恢复/HTTP 与记忆工具的真实模型行为未验证；M3-F 的成本熔断在 mock 下用 Token 预算验证；单次调用路径的成本超支只能在**下一个检查点**被拦截（无 per-call 预扣机制）
 2. **kill switch 是进程内存态**：进程重启后回到 `AGENTOS_TOOL_EXECUTION` 初始值（设计取舍，已在 UI/文档/API 三处明示）
 3. **replan 超限直接 409**：主计划建议的"转 awaiting_approval"与状态机（failed→awaiting_approval 非法迁移）冲突，未采纳；人工可通过重试/返工路径处理
 4. **嵌套审批的恢复 UX**：子任务内工具审批批准后，子任务自动完成，但**父任务需要人工点一次"恢复"**才能继续（自动续推父任务未实现）
@@ -183,7 +184,7 @@ audit_log 2（本会话 kill switch 端点探活产生的两条记录，内容�
 
 | 事项 | 原因 | 预计成本/影响 | 需要的授权 |
 |---|---|---|---|
-| 真实模型调用（DeepSeek） | 红线 4：不擅自调用付费模型 | 极小（建议先 max_tokens=64 验证，<$0.01） | 明确允许后跑一次最小验证 |
+| ~~真实模型调用（DeepSeek）~~ | ✅ 2026-11-07 用户授权并已完成（文件读取工具验证，$0.0005，见验收文档） | — | — |
 | 真实 GitHub/外网访问 | 红线：不真实外网；本机代理仅放行 api.github.com | 网络请求 | 明确允许 + 域名白名单配置 |
 | Git Push | 红线 10：不擅自 Push | — | 明确指示推送方式（本机 GitHub API 通道） |
 | 安装 Playwright/Redis/向量服务等 | 红线 3：不擅自安装 | — | —（按设计不需要） |

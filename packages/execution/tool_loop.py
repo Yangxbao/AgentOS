@@ -22,7 +22,7 @@ from packages.shared.types import UsageReport
 from packages.tools.context import ToolContext
 from packages.tools.invoke import invoke_tool
 from packages.tools.policy import effective_tool_policy, visible_tools
-from packages.tools.registry import model_schemas
+from packages.tools.registry import from_model_name, model_schemas
 
 from . import budget
 
@@ -262,7 +262,9 @@ async def run_tool_loop(
                     409, {"max_tool_calls": max_tool_calls, "tool_calls": call_index},
                 )
             function = call.get("function") or {}
-            name = str(function.get("name") or "")
+            # 模型侧名称还原（fs__list_dir → fs.list_dir）；真实模型拿到的是映射名
+            name = str(from_model_name(str(function.get("name") or ""))
+                       or function.get("name") or "")
             args, error = _parse_arguments(function.get("arguments") or "{}")
             call_id = str(call.get("id") or f"call_{call_index}")
             if error:

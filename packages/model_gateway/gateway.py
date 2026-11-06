@@ -95,6 +95,11 @@ async def chat(
     if tools:
         extra["tools"] = tools
         extra["tool_choice"] = tool_choice or "auto"
+        # litellm 1.108.0 缺陷：只要传 tools 就会无条件 import 其 MCP 网关模块链，
+        # 而可选包 `mcp` 未安装时直接 ModuleNotFoundError（连非 MCP 工具也被拦）。
+        # `_skip_mcp_handler` 是 litellm 官方 kwargs 逃生门（main.py: kwargs.pop("_skip_mcp_handler")）；
+        # 我们不使用 MCP 网关，全部工具走 OpenAI function calling。litellm 升级修复后可移除本参数。
+        extra["_skip_mcp_handler"] = True
     try:
         response = await litellm.acompletion(
             model=model,
