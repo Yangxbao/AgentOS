@@ -169,6 +169,25 @@ def serialize_employee(session: Session, employee: Employee) -> dict:
     }
 
 
+def _validate_tools_allowed(tools_allowed: list[str] | None) -> list[str]:
+    """员工工具白名单必须来自真实工具注册中心；非法名称写库前拒绝（422）。
+
+    白名单只是五层权限的第 4 层之一，此处校验的是"名称合法"，不等于"可执行"。
+    """
+    if not tools_allowed:
+        return []
+    from packages.tools.registry import REGISTRY
+
+    unknown = sorted(set(tools_allowed) - set(REGISTRY))
+    if unknown:
+        raise DomainError(
+            "VALIDATION_ERROR",
+            f"未注册的工具名称：{', '.join(unknown)}",
+            422, {"unknown": unknown},
+        )
+    return sorted(set(tools_allowed))
+
+
 def create_employee(
     session: Session,
     owner_id: str,
@@ -212,7 +231,8 @@ def create_employee(
         name=clean, avatar=avatar, title=title, bio=bio, personality=personality,
         status="active", reports_to=None, primary_model_id=primary_model_id,
         fallback_model_id=fallback_model_id, adapter_type=adapter_type, cli_profile=cli_profile,
-        tools_allowed=tools_allowed or [], permission_profile=permission_profile or {},
+        tools_allowed=_validate_tools_allowed(tools_allowed),
+        permission_profile=permission_profile or {},
         capabilities_declared={}, prompt_active_version=None,
     )
     session.add(employee)
@@ -307,7 +327,7 @@ def update_employee(
         _validate_reports_to(session, owner_id, employee.company_id, employee, reports_to)
         employee.reports_to = reports_to
     if tools_allowed is not None:
-        employee.tools_allowed = tools_allowed
+        employee.tools_allowed = _validate_tools_allowed(tools_allowed)
     if permission_profile is not None:
         employee.permission_profile = {**employee.permission_profile, **permission_profile}
     if positions is not None:

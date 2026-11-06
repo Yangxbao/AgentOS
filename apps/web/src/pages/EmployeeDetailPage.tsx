@@ -2,22 +2,48 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
+import { orgApi } from '../api/org'
 import { peopleApi } from '../api/people'
 import { promptsApi } from '../api/prompts'
 import { governanceApi } from '../api/governance'
+import { toolsApi, type ToolSpec } from '../api/tools'
+import { Toast, useToast } from '../components/Toast'
 
 function errorText(error: unknown): string {
   return error instanceof ApiError ? `${error.code}：${error.message}` : String(error)
 }
 
+const CATEGORY_LABEL: Record<string, string> = {
+  file_read: '文件读取', file_write: '文件写入', network: '网络', shell: 'Shell', memory: '记忆',
+}
+const RISK_LABEL: Record<string, string> = {
+  low: '低', medium: '中', high: '高', critical: '严重',
+}
+const REASON_LABEL: Record<string, string> = {
+  available: '可执行',
+  shell_disabled: 'Shell 永久禁用',
+  tool_disabled: '公司策略未开启',
+  category_disabled: '类别未开启',
+  tool_not_granted: '白名单/策略未包含',
+  workspace_not_granted: '未授权工作区',
+  network_not_configured: '未配置网络白名单',
+}
+
 export default function EmployeeDetailPage() {
   const { id = '' } = useParams()
   const queryClient = useQueryClient()
+  const { toast, showToast } = useToast()
   const employee = useQuery({ queryKey: ['employee', id], queryFn: () => peopleApi.getEmployee(id) })
+  const companyId = employee.data?.company_id
   const connections = useQuery({
-    queryKey: ['connections', employee.data?.company_id],
-    queryFn: () => peopleApi.listConnections(employee.data!.company_id),
-    enabled: Boolean(employee.data?.company_id),
+    queryKey: ['connections', companyId],
+    queryFn: () => peopleApi.listConnections(companyId!),
+    enabled: Boolean(companyId),
+  })
+  const departments = useQuery({
+    queryKey: ['departments', companyId],
+    queryFn: () => orgApi.listDepartments(companyId!),
+    enabled: Boolean(companyId),
   })
 
   const [primary, setPrimary] = useState('')
@@ -71,12 +97,119 @@ export default function EmployeeDetailPage() {
     onError: (error) => setMessage(errorText(error)),
   })
 
+  // ---------- A. 基本信息编辑 ----------
+  const [profile, setProfile] = useState<Record<string, string> | null>(null)
+  const profileDraft = profile ?? {
+    name: employee.data?.name ?? '',
+    title: employee.data?.title ?? '',
+    bio: employee.data?.bio ?? '',
+    personality: employee.data?.personality ?? '',
+    department_id: employee.data?.department_id ?? '',
+  }
+  const saveProfile = useMutation({
+    mutationFn: () =>
+      peopleApi.patchEmployee(id, {
+        name: profileDraft.name.trim(),
+        title: profileDraft.title.trim(),
+        bio: profileDraft.bio,
+        personality: profileDraft.personality,
+        department_id: profileDraft.department_id || null,
+      }),
+    onSuccess: (updated) => {
+      setProfile(null)
+      showToast('success', `员工「${updated.name}」基本信息已保存`)
+      queryClient.invalidateQueries({ queryKey: ['employee', id] })
+      queryClient.invalidateQueries({ queryKey: ['employees'] })
+      queryClient.invalidateQueries({ queryKey: ['org-tree'] })
+    },
+    onError: (error) => showToast('error', errorText(error)),
+  })
+
+  // ---------- B. 工具授权管理 ----------
+  const catalogue = useQuery({ queryKey: ['tool-catalogue'], queryFn: () => toolsApi.catalogue() })
+  const toolPolicy = useQuery({
+    queryKey: ['tool-policy', companyId],
+    queryFn: () => toolsApi.getPolicy(companyId!),
+    enabled: Boolean(companyId),
+  })
+  const toolPermissions = useQuery({
+    queryKey: ['tool-permissions', id],
+    queryFn: () => toolsApi.employeePermissions(id),
+  })
+  // null = 未编辑（展示后端已保存值）；编辑中的草稿与后端分离，保存失败不丢失
+  const [toolDraft, setToolDraft] = useState<string[] | null>(null)
+  const savedTools = employee.data?.tools_allowed ?? []
+  const currentTools = toolDraft ?? savedTools
+
+  const toggleTool = (tool: ToolSpec) => {
+    if (toolDraft === null) setToolDraft([...savedTools])
+    setToolDraft((prev) => {
+      const base = prev ?? [...savedTools]
+      return base.includes(tool.name)
+        ? base.filter((t) => t !== tool.name)
+        : [...base, tool.name]
+    })
+  }
+  const toolDiff = (() => {
+    if (toolDraft === null) return null
+    const added = toolDraft.filter((t) => !savedTools.includes(t))
+    const removed = savedTools.filter((t) => !toolDraft.includes(t))
+    return { added, removed }
+  })()
+  const policyAllows = (tool: ToolSpec): boolean => {
+    const policy = toolPolicy.data?.policy
+    if (!policy) return false
+    return Boolean(policy.categories?.[tool.category]) && policy.allowed_tools.includes(tool.name)
+  }
+  const permissionOf = (tool: ToolSpec) =>
+    toolPermissions.data?.tools.find((item) => item.tool === tool.name)
+
+  const saveTools = useMutation({
+    mutationFn: () => peopleApi.patchEmployee(id, { tools_allowed: toolDraft ?? [] }),
+    onSuccess: (updated) => {
+      setToolDraft(null)
+      showToast('success', `工具白名单已保存：${updated.tools_allowed.length} 项`)
+      queryClient.invalidateQueries({ queryKey: ['employee', id] })
+      queryClient.invalidateQueries({ queryKey: ['employees'] })
+      queryClient.invalidateQueries({ queryKey: ['tool-permissions', id] })
+    },
+    onError: (error) => showToast('error', errorText(error)), // 失败保留 toolDraft 便于重新提交
+  })
+
+  // ---------- C. 工作区授权管理 ----------
+  const workspaces = useQuery({
+    queryKey: ['workspaces', companyId],
+    queryFn: () => toolsApi.listWorkspaces(companyId!),
+    enabled: Boolean(companyId),
+  })
+  const [grantAccess, setGrantAccess] = useState<Record<string, 'read' | 'write'>>({})
+  const grant = useMutation({
+    mutationFn: (workspaceId: string) =>
+      toolsApi.grant(workspaceId, id, grantAccess[workspaceId] ?? 'read'),
+    onSuccess: (row) => {
+      showToast('success', `已授权工作区（${row.access === 'write' ? '读写' : '只读'}）`)
+      queryClient.invalidateQueries({ queryKey: ['workspaces', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['tool-permissions', id] })
+    },
+    onError: (error) => showToast('error', errorText(error)),
+  })
+  const revoke = useMutation({
+    mutationFn: (workspaceId: string) => toolsApi.revoke(workspaceId, id),
+    onSuccess: () => {
+      showToast('success', '已撤销该工作区授权')
+      queryClient.invalidateQueries({ queryKey: ['workspaces', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['tool-permissions', id] })
+    },
+    onError: (error) => showToast('error', errorText(error)),
+  })
+
   if (employee.isLoading) return <p className="p-6 text-slate-400">加载中…</p>
   if (employee.isError || !employee.data) return <p className="p-6 text-red-400">员工不存在</p>
   const data = employee.data
 
   return (
     <div className="space-y-6 p-6">
+      <Toast toast={toast} />
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold text-slate-100">
           {data.avatar || '🤖'} {data.name}
@@ -91,14 +224,43 @@ export default function EmployeeDetailPage() {
 
       <section className="grid gap-4 md:grid-cols-2">
         <div className="rounded border border-slate-800 p-4">
-          <h3 className="text-sm font-medium text-slate-200">档案</h3>
-          <dl className="mt-3 space-y-1 text-sm text-slate-400">
-            <div>岗位：{data.positions.map((p) => `${p.name}${p.is_primary ? '（主）' : ''}`).join('、') || '—'}</div>
-            <div>简介：{data.bio || '—'}</div>
-            <div>性格：{data.personality || '—'}</div>
-            <div>汇报对象：{data.reports_to || '无'}</div>
-            <div>工具授权：{data.tools_allowed.join('、') || '无'}</div>
-          </dl>
+          <h3 className="text-sm font-medium text-slate-200">基本信息（可编辑）</h3>
+          <div className="mt-3 space-y-2 text-sm">
+            <input className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                   placeholder="姓名" value={profileDraft.name}
+                   onChange={(e) => setProfile({ ...profileDraft, name: e.target.value })} />
+            <input className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                   placeholder="岗位头衔" value={profileDraft.title}
+                   onChange={(e) => setProfile({ ...profileDraft, title: e.target.value })} />
+            <textarea className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                      placeholder="简介" value={profileDraft.bio}
+                      onChange={(e) => setProfile({ ...profileDraft, bio: e.target.value })} />
+            <input className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                   placeholder="工作风格 / 性格" value={profileDraft.personality}
+                   onChange={(e) => setProfile({ ...profileDraft, personality: e.target.value })} />
+            <select className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
+                    value={profileDraft.department_id}
+                    onChange={(e) => setProfile({ ...profileDraft, department_id: e.target.value })}>
+              <option value="">未分配部门</option>
+              {departments.data?.items.map((dept) => (
+                <option key={dept.id} value={dept.id}>{dept.name}</option>
+              ))}
+            </select>
+            <div className="flex items-center gap-2">
+              <button className="rounded bg-sky-600 px-4 py-1.5 text-sm text-white disabled:opacity-50"
+                      disabled={saveProfile.isPending || !profileDraft.name.trim()}
+                      onClick={() => saveProfile.mutate()}>
+                保存基本信息
+              </button>
+              {profile !== null && (
+                <button className="text-xs text-slate-400 hover:underline"
+                        onClick={() => setProfile(null)}>
+                  放弃修改
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-slate-600">岗位调整请到「组织设置」维护岗位后在此所属部门下管理。</p>
+          </div>
         </div>
 
         <div className="rounded border border-slate-800 p-4">
@@ -134,6 +296,145 @@ export default function EmployeeDetailPage() {
             </ul>
           )}
         </div>
+      </section>
+
+      <section className="rounded border border-slate-800 p-4">
+        <h3 className="text-sm font-medium text-slate-200">工具授权管理</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          勾选 = 员工工具白名单（五层权限之一）。「实际可执行」来自后端五层诊断，
+          还需全局开关、公司工具策略、工作区授权配合——勾选不等于一定可执行。
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <button className="rounded border border-slate-700 px-2 py-1 text-slate-300 hover:bg-slate-800"
+                  onClick={() => setToolDraft([
+                    ...(catalogue.data?.items ?? [])
+                      .filter((tool) => tool.enabled && tool.category !== 'shell')
+                      .map((tool) => tool.name),
+                  ])}>
+            全选可配置工具
+          </button>
+          <button className="rounded border border-slate-700 px-2 py-1 text-slate-300 hover:bg-slate-800"
+                  onClick={() => setToolDraft([])}>
+            全部取消
+          </button>
+          <button className="rounded bg-sky-600 px-3 py-1 text-white disabled:opacity-50"
+                  disabled={saveTools.isPending || toolDiff === null || (toolDiff && toolDiff.added.length === 0 && toolDiff.removed.length === 0)}
+                  onClick={() => saveTools.mutate()}>
+            保存工具白名单
+          </button>
+          {toolDiff && (toolDiff.added.length > 0 || toolDiff.removed.length > 0) && (
+            <span className="text-amber-400">
+              本次变更：新增 {toolDiff.added.join('、') || '无'}；移除 {toolDiff.removed.join('、') || '无'}
+            </span>
+          )}
+        </div>
+        <table className="mt-3 w-full text-left text-xs">
+          <thead className="text-slate-500">
+            <tr>
+              <th className="py-1">授权</th><th>工具</th><th>分类</th><th>风险</th>
+              <th>说明</th><th>全局策略允许</th><th>实际可执行</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(catalogue.data?.items ?? []).map((tool) => {
+              const perm = permissionOf(tool)
+              const policyOk = policyAllows(tool)
+              const checked = currentTools.includes(tool.name)
+              const disabled = !tool.enabled || tool.category === 'shell'
+              return (
+                <tr key={tool.name} className="border-t border-slate-800 align-top">
+                  <td className="py-1.5">
+                    <input type="checkbox" checked={checked} disabled={disabled}
+                           onChange={() => toggleTool(tool)} />
+                  </td>
+                  <td className="font-mono text-slate-200">{tool.name}</td>
+                  <td className="text-slate-400">{CATEGORY_LABEL[tool.category] ?? tool.category}</td>
+                  <td className="text-slate-400">{RISK_LABEL[tool.risk] ?? tool.risk}</td>
+                  <td className="max-w-xs text-slate-500">{tool.description}</td>
+                  <td className={policyOk ? 'text-emerald-400' : 'text-slate-500'}>
+                    {policyOk ? '允许' : '未允许'}
+                  </td>
+                  <td className={perm?.available ? 'text-emerald-400' : 'text-slate-500'}>
+                    {perm ? (REASON_LABEL[perm.reason] ?? perm.reason) : '…'}
+                    {!disabled && checked && !perm?.available && (
+                      <span className="ml-1 text-amber-500">（勾选了但还不可执行，见上一列与工作区授权）</span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+            {(catalogue.data?.items ?? []).length === 0 && (
+              <tr><td colSpan={7} className="py-2 text-slate-500">工具目录加载中…</td></tr>
+            )}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="rounded border border-slate-800 p-4">
+        <h3 className="text-sm font-medium text-slate-200">工作区授权管理</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          文件工具只能在已授权的工作区内操作；根目录与路径安全边界不受本页影响（后端强制）。
+        </p>
+        <table className="mt-3 w-full text-left text-xs">
+          <thead className="text-slate-500">
+            <tr>
+              <th className="py-1">工作区</th><th>根目录</th><th>状态</th><th>当前授权</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(workspaces.data ?? []).map((workspace) => {
+              const existing = workspace.grants.find((g) => g.employee_id === id)
+              return (
+                <tr key={workspace.id} className="border-t border-slate-800">
+                  <td className="py-1.5 text-slate-200">
+                    {workspace.name}
+                    {workspace.mode === 'read_only' && (
+                      <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-slate-400">只读工作区</span>
+                    )}
+                  </td>
+                  <td className="max-w-xs truncate font-mono text-slate-500">{workspace.root_path}</td>
+                  <td className={workspace.status === 'active' ? 'text-emerald-400' : 'text-slate-500'}>
+                    {workspace.status === 'active' ? '启用' : '已归档'}
+                  </td>
+                  <td className={existing ? 'text-emerald-400' : 'text-slate-500'}>
+                    {existing ? (existing.access === 'write' ? '读写' : '只读') : '未授权'}
+                  </td>
+                  <td>
+                    {existing ? (
+                      <button className="text-rose-400 hover:underline"
+                              disabled={revoke.isPending}
+                              onClick={() => revoke.mutate(workspace.id)}>
+                        撤销授权
+                      </button>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <select className="rounded border border-slate-700 bg-slate-900 px-1 py-0.5 text-slate-200"
+                                value={grantAccess[workspace.id] ?? 'read'}
+                                onChange={(e) => setGrantAccess({
+                                  ...grantAccess,
+                                  [workspace.id]: e.target.value as 'read' | 'write',
+                                })}>
+                          <option value="read">只读</option>
+                          <option value="write">读写</option>
+                        </select>
+                        <button className="text-sky-400 hover:underline disabled:opacity-50"
+                                disabled={grant.isPending || workspace.status !== 'active'}
+                                onClick={() => grant.mutate(workspace.id)}>
+                          授权
+                        </button>
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+            {(workspaces.data ?? []).length === 0 && (
+              <tr><td colSpan={5} className="py-2 text-slate-500">
+                本公司还没有工作区，请到「工作区管理」创建。
+              </td></tr>
+            )}
+          </tbody>
+        </table>
       </section>
 
       <section className="rounded border border-slate-800 p-4">

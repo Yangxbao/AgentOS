@@ -113,7 +113,7 @@ def test_assignment_hard_filters(write_client, seeded_company, seeded_connection
     resp = write_client.post(
         f"/api/v1/companies/{company_id}/assignments/preview",
         json={
-            "required_capabilities": TAGS, "required_tools": ["file.write"],
+            "required_capabilities": TAGS, "required_tools": ["fs.write_file"],
             "risk_level": "medium", "budget_usd": 1.0,
         },
     )
@@ -136,12 +136,12 @@ def test_assignment_scoring_and_data_quality(write_client, seeded_company, seede
     dept = _dept(write_client, company_id, "研发部")
     position = _position(write_client, company_id, "开发", tags=TAGS, permissions={"max_risk_level": "high"})
     employee = _employee(write_client, company_id, seeded_connection["id"], "开发甲",
-                         department_id=dept["id"], positions=[position["id"]], tools=["file.write"])
+                         department_id=dept["id"], positions=[position["id"]], tools=["fs.write_file"])
 
     resp = write_client.post(
         f"/api/v1/companies/{company_id}/assignments/preview",
         json={
-            "required_capabilities": TAGS, "required_tools": ["file.write"],
+            "required_capabilities": TAGS, "required_tools": ["fs.write_file"],
             "risk_level": "medium", "budget_usd": 1.0, "prefer_department_id": dept["id"],
         },
     )

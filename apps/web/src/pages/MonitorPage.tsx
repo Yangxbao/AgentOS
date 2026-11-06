@@ -4,6 +4,7 @@ import { ApiError } from '../api/client'
 import { orgApi } from '../api/org'
 import { systemApi, type ToolExecutionState } from '../api/system'
 import { tasksApi } from '../api/tasks'
+import { Toast, useToast } from '../components/Toast'
 import { StateBadge } from './TasksPage'
 
 const STATE_LABEL: Record<string, string> = {
@@ -38,29 +39,24 @@ export default function MonitorPage() {
 
   const toolEnabled = summary.data?.tool_execution?.enabled ?? false
   // 工具执行开关的操作反馈：成功/失败都必须有明确提示，不允许静默
-  const [toast, setToast] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
-  useEffect(() => {
-    if (!toast) return
-    const timer = setTimeout(() => setToast(null), 4000)
-    return () => clearTimeout(timer)
-  }, [toast])
+  const { toast, showToast } = useToast()
 
   const switchToolExecution = useMutation({
     mutationFn: (enabled: boolean) => systemApi.setToolExecution(enabled),
     onSuccess: (state: ToolExecutionState, enabled: boolean) => {
       queryClient.invalidateQueries({ queryKey: ['monitor'] })
       if (state.enabled === enabled) {
-        setToast({
-          kind: 'success',
-          text: enabled ? '工具执行已恢复（全局开关已开启）' : '工具执行已紧急停止（全局开关已关闭）',
-        })
+        showToast(
+          'success',
+          enabled ? '工具执行已恢复（全局开关已开启）' : '工具执行已紧急停止（全局开关已关闭）',
+        )
       } else {
         // 后端返回与请求不一致：如实展示后端真实状态，不伪造成功
-        setToast({ kind: 'error', text: `后端状态与请求不一致，当前 enabled=${state.enabled}` })
+        showToast('error', `后端状态与请求不一致，当前 enabled=${state.enabled}`)
       }
     },
     onError: (error) => {
-      setToast({ kind: 'error', text: error instanceof ApiError ? error.message : String(error) })
+      showToast('error', error instanceof ApiError ? error.message : String(error))
     },
   })
 
@@ -69,18 +65,7 @@ export default function MonitorPage() {
 
   return (
     <div className="space-y-5 p-6">
-      {toast && (
-        <div
-          className={`fixed right-6 top-6 z-50 rounded border px-4 py-2 text-sm shadow-lg ${
-            toast.kind === 'success'
-              ? 'border-emerald-600 bg-emerald-900/90 text-emerald-100'
-              : 'border-rose-600 bg-rose-900/90 text-rose-100'
-          }`}
-          role="status"
-        >
-          {toast.text}
-        </div>
-      )}
+      <Toast toast={toast} />
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold">执行监控</h1>
         <select

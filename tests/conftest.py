@@ -22,9 +22,15 @@ from packages.shared.types import new_id  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def default_execution_env(monkeypatch):
-    """全量测试默认走 Mock 执行：绝不因测试意外产生真实模型费用。"""
+    """全量测试默认走 Mock 执行：绝不因测试意外产生真实模型费用。
+
+    同时把 AGENTOS_TOOL_EXECUTION 固定为默认 off：create_app 的 load_dotenv 会把
+    用户 .env 的真实配置注入测试进程（2026-11-07 实测泄漏），破坏"默认 off"假设的测试。
+    需要 on 的测试显式用 tools_on fixture 覆盖。
+    """
     monkeypatch.setenv("AGENTOS_MODEL_MODE", "mock")
     monkeypatch.setenv("AGENTOS_MOCK_DELAY_MS", "0")
+    monkeypatch.setenv("AGENTOS_TOOL_EXECUTION", "off")
 
 
 @pytest.fixture(autouse=True)
@@ -138,7 +144,7 @@ def seeded_team(write_client, seeded_company, seeded_connection) -> dict:
         "company": seeded_company,
         "connection": seeded_connection,
         "manager": _employee("经理甲", "负责人", manager_position["id"]),
-        "dev": _employee("开发乙", "开发工程师", dev_position["id"], tools=["file.write"]),
+        "dev": _employee("开发乙", "开发工程师", dev_position["id"], tools=["fs.write_file"]),
         "qa": _employee("测试丙", "测试工程师", qa_position["id"]),
         "positions": {
             "manager": manager_position, "dev": dev_position, "qa": qa_position,

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { orgApi } from '../api/org'
 import { peopleApi } from '../api/people'
+import { toolsApi } from '../api/tools'
 
 function errorText(error: unknown): string {
   return error instanceof ApiError ? `${error.code}：${error.message}` : String(error)
@@ -36,6 +37,22 @@ export default function EmployeesPage() {
     queryFn: () => orgApi.listDepartments(activeCompanyId as string),
     enabled: Boolean(activeCompanyId),
   })
+
+  // 员工卡片概览用：本公司工作区授权关系（grants 含 employee_id）
+  const workspaces = useQuery({
+    queryKey: ['workspaces', activeCompanyId],
+    queryFn: () => toolsApi.listWorkspaces(activeCompanyId as string),
+    enabled: Boolean(activeCompanyId),
+  })
+  const grantCountByEmployee = (() => {
+    const counts: Record<string, number> = {}
+    for (const workspace of workspaces.data ?? []) {
+      for (const row of workspace.grants) {
+        counts[row.employee_id] = (counts[row.employee_id] ?? 0) + 1
+      }
+    }
+    return counts
+  })()
 
   const [name, setName] = useState('')
   const [title, setTitle] = useState('')
@@ -144,6 +161,17 @@ export default function EmployeesPage() {
                 {employee.positions.map((p) => p.name).join(' / ') || '无岗位'} ·{' '}
                 {employee.model.primary?.model ?? '未绑定模型'}
                 {employee.model.health === false && <span className="ml-2 text-red-400">模型异常</span>}
+              </div>
+              <div className="mt-1 flex items-center gap-3 text-xs">
+                <span className={employee.tools_allowed.length > 0 ? 'text-sky-400' : 'text-amber-500'}>
+                  已授权工具：{employee.tools_allowed.length} 项
+                </span>
+                <span className={grantCountByEmployee[employee.id] ? 'text-sky-400' : 'text-amber-500'}>
+                  已授权工作区：{grantCountByEmployee[employee.id] ?? 0} 个
+                </span>
+                <Link className="text-sky-500 hover:underline" to={`/employees/${employee.id}`}>
+                  编辑配置 →
+                </Link>
               </div>
             </div>
             <button

@@ -567,6 +567,7 @@ M3-E 闸门已就位（预算/连续拒绝熔断、kill switch），失控风险
 | 前端 API 前缀 | 404 | 路径必须 `/api/v1/...`（`src/api/client.ts` 只拼 base） |
 | 前端刷新后状态旧 | 面板显示 0 次 | TanStack Query 轮询；动作后 `invalidateQueries` |
 | `data/` 被 gitignore | 换机器后数据没了 | 用 `scripts/backup_db.py` 或导出包迁移 |
+| 用户 .env 泄漏进测试进程 | `create_app` 的 load_dotenv 把 .env 的 AGENTOS_TOOL_EXECUTION=on 注入测试进程，"默认 off"假设的测试全崩（2026-11-07 实测） | conftest `default_execution_env` autouse 已固定 MODEL_MODE=mock 与 TOOL_EXECUTION=off |
 
 ---
 
