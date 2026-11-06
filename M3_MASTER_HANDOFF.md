@@ -99,6 +99,14 @@
 - **监控页 `/monitor`**（增强）：新增"工具执行（全局）"卡片——显示状态 + **一键紧急停止/恢复按钮**（调 kill switch API，带审计）；"拒绝原因 Top N"；"预算使用率"表格（进行中任务、超 90% 红色预警）
 - **记忆中心 `/settings/memory`**（新增）：作用域过滤、FTS 检索框、写入表单（项目/公司作用域）、提升（employee→project/company）、删除；说明 Agent 私有记忆需提升才共享
 - 导航新增"记忆中心"入口；构建 496.68 kB（gzip 150.95 kB），tsc 类型检查通过
+- **开发态同源代理修复（2026-11-06，UNTRUSTED_REQUEST 403）**：此前前端 `client.ts` 默认直连
+  `http://127.0.0.1:8000`，从 `localhost:5173` 页面发起的写请求被浏览器标记 `Sec-Fetch-Site: cross-site`
+  （localhost 与 127.0.0.1 是不同 site，**与端口无关**），被 LocalGuard 正确拒绝（403）；
+  `127.0.0.1:5173` 页面因 IP 相同属 same-site 所以浏览器验收一直能过。
+  修复：`vite.config.ts` 新增 `/api` 代理（target 127.0.0.1:8000，changeOrigin: true——Host 校验只看主机名，
+  true/false 都能过，403 与它无关）+ 新增 `apps/web/.env.development`（`VITE_API_BASE=` 置空 → 同源相对路径，
+  仅 dev 生效；生产构建仍默认绝对基址，serve_web 预览经 127.0.0.1 访问属 same-site 不受影响）。
+  验收：经代理创建公司 201、列表/PATCH 正常、恶意 cross-site 依旧 403（防护未削弱）、全量 332 测试过
 - 浏览器验收含监控页新区块截图（`docs/testing/m3_browser/12_monitor.png`），29 项 0 JS 异常
 
 ## 6. 权限、安全和预算设计（本批次新增的边界）
