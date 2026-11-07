@@ -216,16 +216,52 @@ cd /d E:\AgentOS
 
 ---
 
+## 附：使用前免费验收（2026-11-07，全部 Mock，真实费用 0）
+
+**真实库只读巡检结论**（SELECT only，未写任何数据）：
+- 公司"小宝公司"（fc3efd74）：工具策略已配好（file_read/file_write on，allowed 含 fs.list_dir/fs.read_file/fs.stat/fs.write_file）✅
+- 工作区"实验区"：root=E:\AgentOS\experiment_workspace、active、read_write ✅
+- 实验文件 test.txt 内容完好（"大肥鱼是诗人"，git 与磁盘一致）✅
+- 授权：臧志聪、闵昊已有"实验区" write 授权 ✅；大肥鱼/小肥鱼/龚林未授权
+- **唯一缺口：全部 5 名员工 tools_allowed=[]** → 明天在员工详情页勾选 fs.list_dir/fs.read_file 即可（正是配置中心功能）
+- 全局 AGENTOS_TOOL_EXECUTION=on（用户已配）✅
+
+**六类 Mock 场景验收映射**（A-F 全部 ✅，对应测试名可复核）：
+| 场景 | 结果 | 测试 |
+|---|---|---|
+| A 单员工读取文件（目录+读取+审计） | ✅ | test_employee_config::test_end_to_end_mock_task_with_configured_employee |
+| B 两员工协作+按身份分别校验工具（甲成功/乙被拒/上游传递/拒绝不阻断） | ✅（本轮新增） | test_employee_config::test_scenario_b_two_employees_collaboration_with_per_identity_tools |
+| C 人工审批（等待/批准继续/驳回不可执行/记录完整） | ✅ | test_approvals 6 项 + test_m3e_guards（工具审批挂起恢复） |
+| D 递归（子任务/深度/步数/子预算受父约束/replan 上限） | ✅ | test_m3b_recursion 9 项 |
+| E 记忆（私有隔离/作用域/提升/删除/不可信注入） | ✅ | test_m3c_memory 10 项 |
+| F 异常安全（未授权工具/未授权工作区/路径越界/kill/预算/连续拒绝/次数上限） | ✅ | test_m3e_guards 9 + test_system_switch 4 + test_tool_policy 23 + test_tool_paths 60 |
+
+**本轮发现的行为说明（非缺陷）**：计划阶段会拒绝"步骤声明了员工未授权工具"的计划
+（TASK_PLAN_INVALID，防护前置）；场景 B 因此改用"乙有无关白名单+指令 marker 调用未授权工具"路径，
+与真实模型的未授权尝试语义一致。
+
+**回归数据**：348 passed / 3 skipped（+场景 B）；ruff 全过；前端 build ✓；浏览器验收 29/29（0 JS 异常）；
+**真实模型调用次数：0；真实费用：0**。
+
+---
+
 ## 附：明天的真实模型文件读取实验（手动执行，是否产生费用由用户决定）
 
 前置（已就绪）：`.env` 已有 `AGENTOS_TOOL_EXECUTION=on`；工作区 `experiment_workspace`（根目录 `E:\AgentOS\experiment_workspace`）与文件 `test.txt`（内容："大肥鱼是诗人"，用户自建）已存在并入库。
 
-**页面配置（约 2 分钟）**：
-1. 「AI 员工」→ 招聘员工（如"文件分析员"），绑定 DeepSeek 模型连接；
-2. 点员工卡片「编辑配置 →」进详情页；
-3. 「工具授权管理」勾选 `fs.list_dir`、`fs.read_file` → 保存（Toast 确认；"实际可执行"列应为绿色"可执行"）；
-4. 「工作区授权管理」→ 给"experiment_workspace"授权"只读"；
-5. 「任务」→ 新建：执行员工选该员工，执行模式 **real**，预算 0.05，指令粘贴下方提示词 → 执行。
+**完整操作步骤（12 点）**：
+1. **进入页面**：启动后端与前端后，浏览器打开 `http://localhost:5173`；
+2. **选择员工**：「AI 员工」页切到"小宝公司"，点员工卡片「编辑配置 →」（建议用已有"实验区"授权的臧志聪或闵昊，可跳过第 4 步）；
+3. **配置工具授权**：详情页「工具授权管理」勾选 `fs.list_dir`、`fs.read_file` → 保存（绿色 Toast；也可先清空再勾选验证撤销）；
+4. **配置工作区授权**：「工作区授权管理」给"实验区"授权"只读"（臧志聪/闵昊已是读写，可直接用）；
+5. **确认五层诊断**：同页"实际可执行"列对这两个工具应为绿色"可执行"；若显示原因（如"未授权工作区"），按原因补配置；
+6. **创建任务**：「任务」→ 新建任务：执行员工选该员工，公司自动绑定（创建接口校验归属），执行模式选 **real**，预算填 **0.05**（熔断上限，实际预计 <$0.01）；
+7. **任务提示词**：粘贴本章节下方代码块原文；
+8. **看哪些日志**：后端控制台的 POST /run 与工具调用日志；任务详情页"执行记录/工具调用/时间线"三个面板；
+9. **确认工具真实执行**：任务详情"工具调用"面板应有 fs.list_dir 与 fs.read_file 两条 succeeded（含 sha256/耗时），状态非 denied；
+10. **确认没有编造**：模型汇报的文件内容必须与 test.txt 实际内容一致（"大肥鱼是诗人"）；不符即编造，收集证据；
+11. **费用与低预算**：任务预算 0.05 美元，超限自动暂停（task.budget_exceeded）；实际预计 <$0.01，完成后在任务详情"成本"区核对 billable=true 的真实金额；
+12. **失败时收集**：任务 result.error 的 code/message、时间线里的拒绝事件（error_code）、后端控制台报错、员工详情页"实际可执行"列的原因——四项足够定位是哪一层配置缺失。
 
 **任务提示词（可直接粘贴）**：
 

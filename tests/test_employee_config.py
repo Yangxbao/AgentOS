@@ -238,3 +238,84 @@ def test_end_to_end_mock_task_with_configured_employee(write_client, seeded_team
     assert {c["tool_name"] for c in calls} == {"fs.list_dir", "fs.read_file"}
     assert all(c["status"] == "succeeded" for c in calls)
     assert detail["state"] == "succeeded"
+
+
+# ---------------------------------------------------------------- 场景 B：协作与按身份隔离的工具权限
+
+
+def test_scenario_b_two_employees_collaboration_with_per_identity_tools(
+    write_client, seeded_team, seeded_workspace, workspace_root, tools_on
+):
+    """场景 B：员工 A（有 fs 授权）读取文件，员工 B（无 fs 授权）分析其结果。
+
+    验证：A 的工具调用成功且归属 A；B 调用文件工具被拒但不影响其分析步骤；
+    B 的输入包含 A 的上游产出（结果传递正确）；两人工具权限按身份分别校验。
+    """
+    company_id = seeded_team["company"]["id"]
+    employee_a = _create_employee(
+        write_client, company_id, name="读取员甲",
+        primary_model_id=seeded_team["connection"]["id"],
+        tools_allowed=["fs.list_dir", "fs.read_file"],
+    )
+    employee_b = _create_employee(
+        write_client, company_id, name="分析员乙",
+        primary_model_id=seeded_team["connection"]["id"],
+        # 乙有白名单（才会进入工具循环），但不含 fs.read_file——按身份分别校验的关键
+        tools_allowed=["fs.stat"],
+    )
+    write_client.post(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/grants",
+        json={"employee_id": employee_b["id"], "access": "read"},
+    )
+    write_client.post(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/grants",
+        json={"employee_id": employee_a["id"], "access": "read"},
+    )
+    # 乙有工作区授权（文件工具"可见"），但白名单不含 fs.read_file —— 按身份分别校验的关键
+
+    plan = {
+        "steps": [
+            {"id": "s1", "title": "读取", "employee_id": employee_a["id"],
+             "instruction": (
+                 f'[tool:fs.list_dir {{"workspace_id":"{seeded_workspace["id"]}"}}]'
+                 f' [tool:fs.read_file {{"workspace_id":"{seeded_workspace["id"]}","path":"notes/a.txt"}}]'
+                 " 读取文件"
+             ),
+             "tools": ["fs.list_dir", "fs.read_file"]},
+            {"id": "s2", "title": "分析", "employee_id": employee_b["id"],
+             "instruction": (
+                 f'[tool:fs.read_file {{"workspace_id":"{seeded_workspace["id"]}","path":"notes/a.txt"}}]'
+                 " 基于上游产出完成分析"
+             ),
+             "depends_on": ["s1"]},
+        ],
+    }
+    task = create_task(write_client, company_id, employee_a["id"], title="协作场景")
+    resp = write_client.put(f"/api/v1/tasks/{task['id']}/plan", json=plan)
+    assert resp.status_code == 200, resp.text
+    task_id = task["id"]
+    write_client.post(f"/api/v1/tasks/{task_id}/run")
+    detail = wait_task(write_client, task_id, {"succeeded"})
+
+    # 两人身份与职责：s1 归甲、s2 归乙
+    steps = {s["step_id"]: s for s in detail["result"]["steps"]}
+    assert steps["s1"]["employee_id"] == employee_a["id"]
+    assert steps["s2"]["employee_id"] == employee_b["id"]
+
+    # 工具调用按身份分别归属与校验：甲成功、乙被拒（TOOL_NOT_GRANTED）
+    calls = write_client.get(f"/api/v1/tasks/{task_id}/tool-calls").json()["items"]
+    a_calls = [c for c in calls if c["employee_id"] == employee_a["id"]]
+    b_calls = [c for c in calls if c["employee_id"] == employee_b["id"]]
+    assert all(c["status"] == "succeeded" for c in a_calls) and a_calls
+    assert b_calls and all(
+        c["status"] == "denied" and c["error_code"] in {"TOOL_NOT_GRANTED", "CATEGORY_DISABLED"}
+        for c in b_calls
+    )
+
+    # 乙的输入包含甲的上游产出（结果传递正确；mock 产出为甲的汇报文本）
+    agents = {a["step_id"]: a for a in [x for run in detail["runs"] for x in run["agent_runs"]]}
+    assert "上游步骤 s1 产出" in agents["s2"]["input"]["instruction"]
+    assert "读取员甲" in agents["s2"]["input"]["instruction"]
+
+    # 乙被拒后任务仍然成功（拒绝结果作为数据回灌，分析步骤继续）
+    assert detail["state"] == "succeeded"
