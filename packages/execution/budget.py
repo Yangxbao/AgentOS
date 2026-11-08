@@ -148,6 +148,24 @@ def status(session: Session, task: Task, pending: dict | None = None) -> dict:
     }
 
 
+def estimate_call_cost(model: str | None, mode: str) -> float:
+    """下一次模型调用的保守预估成本（仅 real 模式；mock 从不计费 → 预估 0）。
+
+    档位单价与 guard.check_execution 的静态预估同源；未知模型按 middle 档保守估计。
+    用于"调模型前预扣"：让成本超支在发生前被拦截，而不是事后在下一个检查点补救。
+    """
+    if mode != "real":
+        return 0.0
+    from packages.execution.guard import COST_ESTIMATE
+
+    try:
+        info = __import__("packages.model_gateway.catalog", fromlist=["model_info"]).model_info(model or "")
+        tier = info.cost_tier if info is not None else "middle"
+    except Exception:  # noqa: BLE001 - 目录查询失败按最保守档位
+        tier = "middle"
+    return COST_ESTIMATE.get(tier, COST_ESTIMATE["middle"])
+
+
 def check(session: Session, task: Task, pending: dict | None = None) -> dict:
     """预算检查：未超限返回快照；超限抛 BUDGET_EXCEEDED（执行器将其转为暂停）。"""
     snapshot = status(session, task, pending)

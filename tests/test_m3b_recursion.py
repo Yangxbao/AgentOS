@@ -9,6 +9,8 @@
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from tests.helpers import all_agent_runs, create_task, wait_task
 
 
@@ -373,3 +375,57 @@ def test_nested_approval_auto_resumes_parent(write_client, seeded_team, tool_emp
 
     from pathlib import Path
     assert (Path(workspace_root) / "notes" / "auto_resume.txt").read_text(encoding="utf-8") == "auto"
+
+
+def test_three_level_nested_approval_cascades_auto_resume(
+    write_client, seeded_team, tool_employee, seeded_workspace, workspace_root, tools_on
+):
+    """祖父→父→子三层嵌套：子任务工具审批批准后，auto_resume 逐层级联到祖父。
+
+    同时验证本批"预算预扣"在嵌套入口不破坏 mock 链路（mock 预估为 0）。
+    """
+    company_id = seeded_team["company"]["id"]
+    dev = seeded_team["dev"]["id"]
+    grand = create_task(write_client, company_id, dev, title="祖父", instruction="祖父根任务")
+    resp = write_client.put(f"/api/v1/tasks/{grand['id']}/plan", json={"steps": [
+        {"id": "s1", "employee_id": dev, "instruction": "父层（子计划）"},
+    ]})
+    assert resp.status_code == 200, resp.text
+    parent = write_client.get(f"/api/v1/tasks/{grand['id']}").json()["children"][0]
+    resp = write_client.put(f"/api/v1/tasks/{parent['id']}/plan", json={"steps": [
+        {"id": "g1", "employee_id": dev, "instruction": "子层（孙计划）"},
+    ]})
+    assert resp.status_code == 200, resp.text
+    child = write_client.get(f"/api/v1/tasks/{parent['id']}").json()["children"][0]
+    resp = write_client.put(f"/api/v1/tasks/{child['id']}/plan", json={"steps": [
+        {"id": "x1", "employee_id": tool_employee["id"],
+         "instruction": (
+             f'[tool:fs.write_file {{"workspace_id":"{seeded_workspace["id"]}",'
+             f'"path":"notes/cascade.txt","content":"cascade","mode":"overwrite"}}] 覆盖写入'
+         )},
+    ]})
+    assert resp.status_code == 200, resp.text
+
+    write_client.post(f"/api/v1/tasks/{grand['id']}/run")
+    detail = wait_task(write_client, grand["id"], {"awaiting_approval"})
+    assert detail["state"] == "awaiting_approval"
+
+    approvals = write_client.get(f"/api/v1/tasks/{child['id']}/approvals").json()
+    pending = next(a for a in approvals if a["status"] == "pending")
+    resp = write_client.post(
+        f"/api/v1/approvals/{pending['id']}/decision", json={"decision": "approve"}
+    )
+    assert resp.status_code == 200, resp.text
+
+    # 三层级联：祖父自动续跑成功，子/父均成功
+    detail = wait_task(write_client, grand["id"], {"succeeded"}, timeout=60.0)
+    assert detail["state"] == "succeeded"
+    assert write_client.get(f"/api/v1/tasks/{parent['id']}").json()["state"] == "succeeded"
+    assert write_client.get(f"/api/v1/tasks/{child['id']}").json()["state"] == "succeeded"
+
+    # 被自动续跑的两层（父、祖父）有 auto_resumed 事件；
+    # 孙任务由审批批准直接入队（trigger=approval），天然没有该事件
+    for tid in (grand["id"], parent["id"]):
+        types = [i.get("type") for i in _event_types_list(write_client, tid)]
+        assert "task.auto_resumed" in types, f"任务 {tid} 缺少 auto_resumed 事件"
+    assert (Path(workspace_root) / "notes" / "cascade.txt").read_text(encoding="utf-8") == "cascade"

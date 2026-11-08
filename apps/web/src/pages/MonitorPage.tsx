@@ -165,6 +165,37 @@ export default function MonitorPage() {
           </section>
 
           <section className="rounded border border-slate-800 p-4">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-medium">执行 Worker</h2>
+              <span className="text-xs text-slate-500">
+                队列 {data.workers?.queued_runs ?? '—'} 条 · 本进程 {data.workers?.this_worker_id?.slice(0, 18) ?? '—'}
+              </span>
+            </div>
+            <table className="mt-2 w-full text-left text-xs">
+              <thead className="text-slate-500">
+                <tr><th className="py-1">Worker</th><th>运行中</th><th>最近心跳</th><th>租约状态</th></tr>
+              </thead>
+              <tbody>
+                {(data.workers?.workers ?? []).map((worker) => (
+                  <tr key={worker.worker_id} className="border-t border-slate-800">
+                    <td className="py-1 font-mono text-slate-300">{worker.worker_id}</td>
+                    <td className="text-slate-400">{worker.running_runs}</td>
+                    <td className="text-slate-500">
+                      {worker.last_heartbeat_at ? worker.last_heartbeat_at.replace('T', ' ').slice(0, 19) : '—'}
+                    </td>
+                    <td className={worker.lease_alive ? 'text-emerald-400' : 'text-rose-400'}>
+                      {worker.lease_alive ? '存活' : '已过期'}
+                    </td>
+                  </tr>
+                ))}
+                {(data.workers?.workers ?? []).length === 0 && (
+                  <tr><td colSpan={4} className="py-2 text-slate-500">当前没有持有租约的 worker</td></tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+
+          <section className="rounded border border-slate-800 p-4">
             <h2 className="text-sm font-medium">预算使用率（进行中的任务）</h2>
             <table className="mt-2 w-full text-left text-xs">
               <thead className="text-slate-500">

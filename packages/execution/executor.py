@@ -326,7 +326,8 @@ async def _execute(session: Session, task: Task, run: TaskRun) -> str:
 
     # M3-B：子任务的审批恢复 run 成功后，父任务若仍在等待，自动续跑（无需人工再点一次恢复）。
     # 子 run 失败时不自动续跑——避免对已知失败步骤立即重试烧钱，由人工决定。
-    if task.parent_task_id and run.trigger == "approval":
+    if task.parent_task_id and run.trigger in ("approval", "auto_resume"):
+        # approval 与 auto_resume 两种独立子 run 成功都会级联向上恢复（祖父→父→子逐层）
         _auto_resume_parent_if_ready(session, task)
     return "succeeded"
 
@@ -579,6 +580,7 @@ async def _run_nested_step(
     - 祖先链预算/工具上限与根任务共享（budget 树聚合），子任务无法绕过；
     - 子计划内的工具审批会沿 RunSuspended 向上传导，父任务同步挂起。
     """
+    # 预扣在每层子步骤的单步入口各自进行（此处无需预估——执行模型由步骤员工决定）
     budget.check(session, child)
     steps = steps_of(child)
 
@@ -766,8 +768,12 @@ async def _run_single_step(
         check_execution(session, task, employee, connection, mode)
 
         # M3-E：步骤开始前的护栏
-        # 1) 预算熔断：之前步骤已把预算花完，这里直接暂停，不再调模型
-        budget.check(session, task)
+        # 1) 预算熔断：之前步骤已把预算花完，这里直接暂停，不再调模型。
+        #    M3 后补充"预扣"：real 模式下把下一次调用的保守预估计入，
+        #    让超支在发生前被拦截（mock 预估为 0，不影响 Mock 全链路）。
+        budget.check(session, task, pending={
+            "cost_usd": budget.estimate_call_cost(bundle.model, mode),
+        })
         # 2) 步骤声明了必需工具但全局执行被关闭：可读地失败，
         #    而不是悄悄降级成无工具的单次调用让任务"假成功"
         required_step_tools = {tool for tool in (step.get("tools") or [])}

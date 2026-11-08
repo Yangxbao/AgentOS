@@ -625,8 +625,8 @@ def enqueue_run(
     approved_by: str | None = None,
 ) -> TaskRun:
     task = _task(session, owner_id, task_id)
-    if task.parent_task_id and trigger != "approval":
-        # M3-B：子任务由父任务计划调度；唯一例外是工具审批通过后的恢复执行
+    if task.parent_task_id and trigger not in ("approval", "auto_resume"):
+        # M3-B：子任务由父任务计划调度；例外=工具审批恢复 + 嵌套审批后的父任务自动续跑
         raise DomainError("TASK_NOT_EDITABLE", "子任务由父任务计划调度，不能单独运行", 409)
     if _active_run(session, task.id) is not None:
         raise DomainError("TASK_ACTIVE_RUN_EXISTS", "该任务已有排队或运行中的执行", 409)

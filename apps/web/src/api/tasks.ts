@@ -43,6 +43,8 @@ export interface Task {
   context: Record<string, unknown>
   rework_count: number
   max_rework: number
+  replan_count: number
+  plan_revision: number
   cancel_requested: boolean
   pause_requested: boolean
   children_count: number
@@ -195,6 +197,17 @@ export interface MonitorSummary {
   tool_execution?: { enabled: boolean }
   tools?: ToolStats
   budgets?: BudgetWatch
+  workers?: {
+    workers: Array<{
+      worker_id: string
+      running_runs: number
+      last_heartbeat_at: string | null
+      lease_expires_at: string | null
+      lease_alive: boolean
+    }>
+    queued_runs: number
+    this_worker_id: string
+  }
 }
 
 export const tasksApi = {
@@ -223,6 +236,17 @@ export const tasksApi = {
     api.post<{ run_id: string; run_no: number }>(`/api/v1/tasks/${taskId}/retry`, {}),
   cancel: (taskId: string) =>
     api.post<{ state: string; pending: boolean }>(`/api/v1/tasks/${taskId}/cancel`, {}),
+  replan: (
+    taskId: string,
+    payload: { steps: Array<{ id?: string; employee_id?: string; instruction: string; depends_on?: string[]; tools?: string[] }>; failed_step_id?: string; reason?: string },
+  ) =>
+    api.post<{ state: string; plan_revision: number; replan_count: number; rewind: unknown }>(
+      `/api/v1/tasks/${taskId}/replan`, payload,
+    ),
+  workers: () =>
+    api.get<{ workers: Array<{ worker_id: string; running_runs: number; last_heartbeat_at: string | null; lease_expires_at: string | null; lease_alive: boolean }>; queued_runs: number; this_worker_id: string }>(
+      '/api/v1/workers',
+    ),
   setPlan: (taskId: string, payload: { steps: Partial<PlanStep>[]; max_parallel?: number }) =>
     api.put<TaskDetail>(`/api/v1/tasks/${taskId}/plan`, payload),
   timeline: (taskId: string) =>

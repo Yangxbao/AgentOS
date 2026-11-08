@@ -104,6 +104,33 @@ export default function TaskDetailPage() {
     refetchInterval: 3000,
   })
 
+  // M3-B：失败/待返工任务的重规划（≤3 次；只重置失败步骤及其下游）
+    const [replanSteps, setReplanSteps] = useState<Record<string, string> | null>(null)
+  const [replanFailedStep, setReplanFailedStep] = useState<string>('')
+  const replan = useMutation({
+    mutationFn: () => {
+      const current = data.plan?.steps ?? []
+      const steps = current.map((step) => ({
+        id: step.id,
+        employee_id: step.employee_id,
+        instruction: replanSteps?.[step.id] ?? step.instruction,
+        depends_on: step.depends_on,
+        tools: step.tools,
+      }))
+      return tasksApi.replan(id, {
+        steps,
+        failed_step_id: replanFailedStep || undefined,
+        reason: '页面重规划',
+      })
+    },
+    onSuccess: (result) => {
+      setReplanSteps(null)
+      setMessage(`重规划完成：计划版本 v${result.plan_revision}（第 ${result.replan_count}/3 次），失败步骤及下游已重置`)
+      refresh()
+    },
+    onError: (error) => setMessage(errorText(error)),
+  })
+
   if (task.isLoading) return <p className="p-6 text-slate-400">加载中…</p>
   if (task.isError || !task.data) return <p className="p-6 text-red-400">{errorText(task.error)}</p>
 
@@ -286,6 +313,58 @@ export default function TaskDetailPage() {
           </div>
         )}
       </section>
+
+      {(data.state === 'failed' || data.state === 'rework_required') && (
+        <section className="rounded border border-amber-800 bg-amber-950/20 p-4">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-medium text-amber-200">重规划</h2>
+            <span className="text-xs text-slate-500">
+              已用 {data.replan_count}/3 次 · 计划版本 v{data.plan_revision ?? 1}；只重置失败步骤及其下游，上游产出保留
+            </span>
+          </div>
+          <div className="mt-3 space-y-2">
+            {(data.plan?.steps ?? []).map((step) => (
+              <div key={step.id} className="flex items-center gap-2 text-xs">
+                <span className="w-10 font-mono text-slate-400">{step.id}</span>
+                <span className="w-40 truncate text-slate-500">
+                  {data.employees[step.employee_id ?? '']?.name ?? step.employee_id?.slice(0, 8) ?? '—'}
+                </span>
+                <input
+                  className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100"
+                  value={replanSteps?.[step.id] ?? step.instruction}
+                  onChange={(event) =>
+                    setReplanSteps({ ...(replanSteps ?? {}), [step.id]: event.target.value })
+                  }
+                />
+                <label className="flex items-center gap-1 text-slate-500">
+                  <input
+                    type="radio"
+                    name="failed_step"
+                    checked={replanFailedStep === step.id}
+                    onChange={() => setReplanFailedStep(step.id)}
+                  />
+                  标记失败
+                </label>
+              </div>
+            ))}
+            <div className="flex items-center gap-3">
+              <button
+                className="rounded bg-amber-700 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                disabled={replan.isPending || data.replan_count >= 3}
+                onClick={() => replan.mutate()}
+              >
+                {data.replan_count >= 3 ? '重规划次数已用尽' : '提交重规划'}
+              </button>
+              {replanSteps !== null && (
+                <button className="text-xs text-slate-400 hover:underline" onClick={() => setReplanSteps(null)}>
+                  放弃修改
+                </button>
+              )}
+              <span className="text-xs text-slate-500">提交后请点「重试」让任务重新入队。</span>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="rounded border border-slate-800 p-4">
         <div className="flex items-center gap-3">
