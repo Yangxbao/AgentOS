@@ -307,7 +307,7 @@ def test_nested_tool_approval_suspends_parent(write_client, seeded_team, tool_em
     assert detail["state"] == "awaiting_approval"
     assert write_client.get(f"/api/v1/tasks/{child['id']}").json()["state"] == "awaiting_approval"
 
-    # 找到工具审批并批准 → 子任务经审批 run 恢复完成；父任务恢复后聚合成功
+    # 找到工具审批并批准 → 子任务经审批 run 恢复完成；父任务自动续跑后聚合成功
     approvals = write_client.get(f"/api/v1/tasks/{child['id']}/approvals").json()
     pending = next(a for a in approvals if a["status"] == "pending")
     resp = write_client.post(f"/api/v1/approvals/{pending['id']}/decision", json={
@@ -317,7 +317,59 @@ def test_nested_tool_approval_suspends_parent(write_client, seeded_team, tool_em
     child_detail = wait_task(write_client, child["id"], {"succeeded"})
     assert child_detail["state"] == "succeeded"
 
-    resp = write_client.post(f"/api/v1/tasks/{task['id']}/resume")
-    assert resp.status_code == 202, resp.text
-    detail = wait_task(write_client, task["id"], {"succeeded"})
+    # 2026-11-08：批准后父任务自动续跑，不再需要人工 resume
+    detail = wait_task(write_client, task["id"], {"succeeded"}, timeout=40.0)
     assert detail["state"] == "succeeded"
+    types = [i.get("type") for i in _event_types_list(write_client, task["id"])]
+    assert "task.auto_resumed" in types
+
+
+def _event_types_list(client, task_id: str) -> list[dict]:
+    return client.get(f"/api/v1/tasks/{task_id}/timeline").json()["items"]
+
+
+def test_nested_approval_auto_resumes_parent(write_client, seeded_team, tool_employee,
+                                             seeded_workspace, workspace_root, tools_on):
+    """子任务内工具审批批准后：子任务恢复完成 → 父任务自动续跑（无需人工再点恢复）。
+
+    对应 M3-B 已知限制的修复；人工恢复路径（手动 resume）仍保留可用。
+    """
+    company_id = seeded_team["company"]["id"]
+    dev = seeded_team["dev"]["id"]
+    task = create_task(write_client, company_id, dev, title="嵌套审批自动续跑", instruction="根")
+    resp = write_client.put(f"/api/v1/tasks/{task['id']}/plan", json={"steps": [
+        {"id": "s1", "employee_id": dev, "instruction": "父步骤（子计划）"},
+    ]})
+    assert resp.status_code == 200, resp.text
+    child = write_client.get(f"/api/v1/tasks/{task['id']}").json()["children"][0]
+    resp = write_client.put(f"/api/v1/tasks/{child['id']}/plan", json={"steps": [
+        {"id": "g1", "employee_id": tool_employee["id"],
+         "instruction": (
+             f'[tool:fs.write_file {{"workspace_id":"{seeded_workspace["id"]}",'
+             f'"path":"notes/auto_resume.txt","content":"auto","mode":"overwrite"}}] 覆盖写入'
+         )},
+    ]})
+    assert resp.status_code == 200, resp.text
+
+    write_client.post(f"/api/v1/tasks/{task['id']}/run")
+    detail = wait_task(write_client, task["id"], {"awaiting_approval"})
+    assert detail["state"] == "awaiting_approval"
+
+    # 批准子任务里的工具调用 → 子任务经审批 run 恢复完成 → 父任务应自动续跑成功
+    approvals = write_client.get(f"/api/v1/tasks/{child['id']}/approvals").json()
+    pending = next(a for a in approvals if a["status"] == "pending")
+    resp = write_client.post(
+        f"/api/v1/approvals/{pending['id']}/decision", json={"decision": "approve"}
+    )
+    assert resp.status_code == 200, resp.text
+
+    detail = wait_task(write_client, task["id"], {"succeeded"}, timeout=40.0)
+    assert detail["state"] == "succeeded"
+    assert write_client.get(f"/api/v1/tasks/{child['id']}").json()["state"] == "succeeded"
+
+    # 自动续跑事件已记录（区别于人工 resume）
+    types = [i.get("type") for i in _event_types_list(write_client, task["id"])]
+    assert "task.auto_resumed" in types
+
+    from pathlib import Path
+    assert (Path(workspace_root) / "notes" / "auto_resume.txt").read_text(encoding="utf-8") == "auto"

@@ -99,6 +99,7 @@
 
 - **监控页 `/monitor`**（增强）：新增"工具执行（全局）"卡片——显示状态 + **一键紧急停止/恢复按钮**（调 kill switch API，带审计）；"拒绝原因 Top N"；"预算使用率"表格（进行中任务、超 90% 红色预警）
 - **记忆中心 `/settings/memory`**（新增）：作用域过滤、FTS 检索框、写入表单（项目/公司作用域）、提升（employee→project/company）、删除；说明 Agent 私有记忆需提升才共享
+- **审批中心 `/approvals`（2026-11-08）**：全公司待审批聚合（任务标题/闸门类型/状态），批准/驳回带备注写审计；状态筛选 + 4 秒轮询；监控页之外的第二处审批入口
 - 导航新增"记忆中心"入口；构建 496.68 kB（gzip 150.95 kB），tsc 类型检查通过
 - **工具执行开关反馈修复（2026-11-07，POST 200 但状态不变）**：根因是运行进程 env_enabled=false
   （.env 未配置 AGENTOS_TOOL_EXECUTION），POST {enabled:true} 是静默 no-op（kill 本来就 false）。
@@ -128,7 +129,7 @@
 ## 7. 自动化测试原始结果（2026-11-06 实测，存档 `docs/testing/m3bdf_final_regression.txt`）
 
 ```
-pytest tests/ -q            → 339 passed, 3 skipped（3 skipped 为无权限环境 symlink 用例）
+pytest tests/ -q            → 349 passed, 3 skipped（3 skipped 为无权限环境 symlink 用例）
 ruff check ...              → All checks passed!
 npm run build（tsc -b）      → ✓ 110 modules，496.68 kB (gzip 150.95 kB)，built in 205ms
 alembic current             → m3b_memory_workers (head)
@@ -179,7 +180,7 @@ audit_log 2（本会话 kill switch 端点探活产生的两条记录，内容�
 1. **真实模型链路**（2026-11-07 部分转 ✅）：单员工只读文件工具链路已真实验证（nonce 防编造通过，$0.0005），过程中发现并修复三层真实链路缺陷（litellm mcp 导入缺陷 / DeepSeek 工具名字符集 / 工作区上下文缺失，见 docs/acceptance/2026-11-07_真实模型工具调用验证.md）；litellm `_skip_mcp_handler` 补丁待升级后移除（有回归测试守护）。仍 🟡：多步协作/递归/审批挂起恢复/HTTP 与记忆工具的真实模型行为未验证；M3-F 的成本熔断在 mock 下用 Token 预算验证；单次调用路径的成本超支只能在**下一个检查点**被拦截（无 per-call 预扣机制）
 2. **kill switch 是进程内存态**：进程重启后回到 `AGENTOS_TOOL_EXECUTION` 初始值（设计取舍，已在 UI/文档/API 三处明示）
 3. **replan 超限直接 409**：主计划建议的"转 awaiting_approval"与状态机（failed→awaiting_approval 非法迁移）冲突，未采纳；人工可通过重试/返工路径处理
-4. **嵌套审批的恢复 UX**：子任务内工具审批批准后，子任务自动完成，但**父任务需要人工点一次"恢复"**才能继续（自动续推父任务未实现）
+4. ~~嵌套审批的恢复 UX~~ → ✅ 2026-11-08 已实现自动续跑：子任务审批恢复 run 成功收尾后，父任务若处于 awaiting_approval 且无阻塞（无待审批/无活跃 run/未被请求暂停取消）则自动入队（事件 `task.auto_resumed`，trigger=auto_resume）；子 run 失败时不自动续跑（避免对已知失败步骤立即重试）。人工恢复路径仍可用
 5. **denied_count 跨并行步骤计数**：极端并发下可能少计（与既有 `tool_calls_count` 同级别的一致性模型；SQLite 单写者 last-write-wins）
 6. **M2 行为变更**：pending 子任务现在允许设置计划（M3_MASTER_PLAN §7.2 明确要求，`test_task_center` 已按新语义更新——非弱化）
 7. **FTS5 中文分词**：unicode61 tokenizer 不做中文词切分，检索按连续字串 token 匹配；召回质量够用但非语义检索（排序按 bm25+命中）
@@ -205,11 +206,11 @@ audit_log 2（本会话 kill switch 端点探活产生的两条记录，内容�
 ```bat
 cd /d E:\AgentOS
 .venv\Scripts\python.exe -m alembic current          REM 期望 m3b_memory_workers (head)
-.venv\Scripts\python.exe -m pytest tests/ -q         REM 期望 332 passed, 3 skipped（约 80s，全 Mock）
+.venv\Scripts\python.exe -m pytest tests/ -q         REM 期望 349 passed, 3 skipped（约 90s，全 Mock）
 .venv\Scripts\python.exe -m ruff check apps packages scripts tests migrations
 .venv\Scripts\python.exe scripts\e2e_m3f.py          REM 期望 16 项通过
 .venv\Scripts\python.exe scripts\browser_acceptance.py   REM 需 8000/5173/9333 空闲；期望 29 项
-.venv\Scripts\python.exe scripts\run_api.py --port 8000  REM 起后端；前端 cd apps\web && npm run dev → 127.0.0.1:5173（右上角 v0.3.0-m3e）
+.venv\Scripts\python.exe scripts\run_api.py --port 8000  REM 起后端；前端 cd apps\web && npm run dev → 127.0.0.1:5173（右上角 v0.3.1）
 ```
 
 ---

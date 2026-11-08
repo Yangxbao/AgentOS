@@ -228,7 +228,12 @@ export const tasksApi = {
   timeline: (taskId: string) =>
     api.get<{ items: TimelineItem[]; total: number }>(`/api/v1/tasks/${taskId}/timeline`),
   approvals: (taskId: string) => api.get<Approval[]>(`/api/v1/tasks/${taskId}/approvals`),
-  pendingApprovals: () => api.get<Page<Approval>>('/api/v1/approvals?status_filter=pending'),
+  pendingApprovals: (params: { status_filter?: string } = {}) => {
+    const query = new URLSearchParams(
+      Object.entries(params).map(([key, value]) => [key, String(value)]),
+    ).toString()
+    return api.get<Page<Approval>>(`/api/v1/approvals${query ? `?${query}` : ''}`)
+  },
   decide: (approvalId: string, payload: Record<string, unknown>) =>
     api.post<{ approval: Approval; state: string; run_id: string | null }>(
       `/api/v1/approvals/${approvalId}/decision`, payload,

@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="AgentOS API", version="0.3.0-m3e", lifespan=lifespan)
+    app = FastAPI(title="AgentOS API", version="0.3.1", lifespan=lifespan)
     app.state.runner = TaskRunner()
 
     guard_config = config_from_env()

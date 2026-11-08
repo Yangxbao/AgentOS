@@ -323,7 +323,48 @@ async def _execute(session: Session, task: Task, run: TaskRun) -> str:
         "steps": len(steps), "cost_usd": cost, "mode": run.mode,
     })
     session.commit()
+
+    # M3-B：子任务的审批恢复 run 成功后，父任务若仍在等待，自动续跑（无需人工再点一次恢复）。
+    # 子 run 失败时不自动续跑——避免对已知失败步骤立即重试烧钱，由人工决定。
+    if task.parent_task_id and run.trigger == "approval":
+        _auto_resume_parent_if_ready(session, task)
     return "succeeded"
+
+
+def _auto_resume_parent_if_ready(session: Session, child: Task) -> str | None:
+    """子任务审批恢复完成后，自动恢复其处于 awaiting_approval 的父任务。
+
+    前置检查：父任务无待审批、无活跃 run、未被请求暂停/取消。
+    """
+    parent = session.get(Task, child.parent_task_id)
+    if parent is None or parent.state != "awaiting_approval":
+        return None
+    if parent.pause_requested or parent.cancel_requested:
+        return None
+    if session.execute(
+        select(TaskApproval).where(
+            TaskApproval.task_id == parent.id, TaskApproval.status == "pending"
+        )
+    ).scalars().first() is not None:
+        return None
+    if session.execute(
+        select(TaskRun).where(
+            TaskRun.task_id == parent.id,
+            # awaiting_approval 的父 run 正是要被恢复的状态，不算阻塞；
+            # 只有排队/运行中的 run 才可能与新 run 冲突
+            TaskRun.state.in_(("queued", "running")),
+        )
+    ).scalars().first() is not None:
+        return None
+    from packages.tasks.service import enqueue_run, pending_approvals
+
+    assert not pending_approvals(session, parent.id)
+    run = enqueue_run(session, parent.owner_id, parent.id, trigger="auto_resume")
+    _emit(session, parent, run.id, "task.auto_resumed", {
+        "reason": "子任务审批恢复完成", "child_task_id": child.id, "child_run_id": run.id,
+    })
+    session.commit()
+    return run.id
 
 
 def _fail(session: Session, run: TaskRun | None, task: Task | None, code: str, message: str) -> None:

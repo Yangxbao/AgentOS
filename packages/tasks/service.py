@@ -631,7 +631,7 @@ def enqueue_run(
     if _active_run(session, task.id) is not None:
         raise DomainError("TASK_ACTIVE_RUN_EXISTS", "该任务已有排队或运行中的执行", 409)
     allowed_states = set(st.RUNNABLE_STATES)
-    if approved_by or trigger in ("resume", "approval"):
+    if approved_by or trigger in ("resume", "approval", "auto_resume"):
         allowed_states.add("awaiting_approval")
     if task.state not in allowed_states:
         raise DomainError(
