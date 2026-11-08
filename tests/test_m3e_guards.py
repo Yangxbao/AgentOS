@@ -289,3 +289,31 @@ def test_monitor_summary_has_m3e_fields(write_client, seeded_team, tool_employee
     watching = {item["task_id"]: item for item in summary["budgets"]["watching"]}
     assert budget_task["id"] in watching
     assert watching[budget_task["id"]]["budget_usd"] == 1.0
+
+
+def test_budget_estimate_in_pending_triggers_immediately(write_client, seeded_team, tool_employee,
+                                                         seeded_workspace, tools_on):
+    """预算预扣语义（单元级）：pending 计入下一次调用预估后，超限在调模型前即触发。
+
+    补充说明：单步入口已把 estimate_call_cost(model, mode) 作为 pending 传入
+    （real 模式非零），本测试直接验证 check 的预扣算术。
+    """
+    company_id = seeded_team["company"]["id"]
+    from packages.execution import budget
+    from packages.persistence import get_session
+    from packages.persistence.models import Task
+    from packages.shared.errors import DomainError
+
+    task = create_task(
+        write_client, company_id, tool_employee["id"], title="预扣验证",
+        instruction="x", budget_usd=0.005,
+    )
+    with get_session() as session:
+        row = session.get(Task, task["id"])
+        # 预扣 $0.01（deepseek budget 档）> 预算 $0.005 → 调模型前就应抛出
+        with pytest.raises(DomainError) as exc_info:
+            budget.check(session, row, pending={"cost_usd": budget.estimate_call_cost(
+                "deepseek/deepseek-chat", "real"
+            )})
+        assert exc_info.value.code == "BUDGET_EXCEEDED"
+        assert exc_info.value.detail["spent_usd"] >= 0.01

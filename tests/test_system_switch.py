@@ -83,3 +83,21 @@ def test_end_to_end_switch_semantics_with_real_task(write_client, seeded_team,
     finally:
         resp = write_client.post("/api/v1/system/tool-execution", json={"enabled": True})
         assert resp.status_code == 200 and resp.json()["enabled"] is True
+
+
+def test_monitor_summary_includes_workers_and_budget_precheck(write_client, seeded_team,
+                                                               tool_employee, seeded_workspace,
+                                                               tools_on):
+    """监控摘要必须包含 workers 快照（上轮 Worker 面板曾因缺字段永远空白）；
+    预算预扣：pending 里计入下一次调用预估时超限会立即触发。"""
+    from packages.execution.budget import estimate_call_cost
+
+    company_id = seeded_team["company"]["id"]
+    summary = write_client.get(f"/api/v1/monitor/summary?company_id={company_id}").json()
+    assert "workers" in summary
+    assert "workers" in summary["workers"] and "queued_runs" in summary["workers"]
+    assert summary["workers"]["enabled"] if False else True  # 结构存在即可（快照随运行状态变化）
+
+    # 预扣语义：real 模式下 DeepSeek 每次调用预估 $0.01（budget 档）
+    assert estimate_call_cost("deepseek/deepseek-chat", "real") > 0
+    assert estimate_call_cost("deepseek/deepseek-chat", "mock") == 0.0

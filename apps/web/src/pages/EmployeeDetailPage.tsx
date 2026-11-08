@@ -7,6 +7,7 @@ import { peopleApi } from '../api/people'
 import { promptsApi } from '../api/prompts'
 import { governanceApi } from '../api/governance'
 import { toolsApi, type ToolSpec } from '../api/tools'
+import { memoryApi, type MemoryItem } from '../api/memory'
 import { Toast, useToast } from '../components/Toast'
 
 function errorText(error: unknown): string {
@@ -199,6 +200,37 @@ export default function EmployeeDetailPage() {
       showToast('success', '已撤销该工作区授权')
       queryClient.invalidateQueries({ queryKey: ['workspaces', companyId] })
       queryClient.invalidateQueries({ queryKey: ['tool-permissions', id] })
+    },
+    onError: (error) => showToast('error', errorText(error)),
+  })
+
+  // ---------- D. 员工记忆（该员工的私有记忆 + 快速写入） ----------
+  const memories = useQuery({
+    queryKey: ['employee-memories', companyId, id],
+    queryFn: () => memoryApi.list(companyId!, { scope: 'employee', employee_id: id as string }),
+    enabled: Boolean(companyId),
+  })
+  const [memoryTitle, setMemoryTitle] = useState('')
+  const [memoryContent, setMemoryContent] = useState('')
+  const createMemory = useMutation({
+    mutationFn: () =>
+      memoryApi.create(companyId!, {
+        scope: 'employee', employee_id: id,
+        title: memoryTitle.trim(), content: memoryContent.trim(), kind: 'note',
+      }),
+    onSuccess: () => {
+      setMemoryTitle('')
+      setMemoryContent('')
+      showToast('success', '已写入员工私有记忆（其他员工检索不到）')
+      queryClient.invalidateQueries({ queryKey: ['employee-memories', companyId, id] })
+    },
+    onError: (error) => showToast('error', errorText(error)),
+  })
+  const deleteMemory = useMutation({
+    mutationFn: (memoryId: string) => memoryApi.remove(memoryId),
+    onSuccess: () => {
+      showToast('success', '已删除记忆')
+      queryClient.invalidateQueries({ queryKey: ['employee-memories', companyId, id] })
     },
     onError: (error) => showToast('error', errorText(error)),
   })
@@ -435,6 +467,45 @@ export default function EmployeeDetailPage() {
             )}
           </tbody>
         </table>
+      </section>
+
+      <section className="rounded border border-slate-800 p-4">
+        <h3 className="text-sm font-medium text-slate-200">员工记忆（employee 作用域，仅本人可检索）</h3>
+        <div className="mt-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <input className="w-48 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-100"
+                   placeholder="标题" value={memoryTitle}
+                   onChange={(event) => setMemoryTitle(event.target.value)} />
+            <input className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-100"
+                   placeholder="内容（密钥会自动脱敏）" value={memoryContent}
+                   onChange={(event) => setMemoryContent(event.target.value)} />
+            <button className="rounded bg-sky-600 px-3 py-1 text-sm text-white disabled:opacity-50"
+                    disabled={!memoryContent.trim() || createMemory.isPending}
+                    onClick={() => createMemory.mutate()}>
+              写入
+            </button>
+          </div>
+          <ul className="space-y-1 text-xs">
+            {(memories.data?.items ?? []).map((item: MemoryItem) => (
+              <li key={item.id} className="flex items-center justify-between rounded border border-slate-800 px-2 py-1">
+                <span className="text-slate-300">
+                  <span className="font-medium">{item.title || '（无标题）'}</span>
+                  <span className="ml-2 text-slate-500">{item.content.slice(0, 80)}</span>
+                </span>
+                <button className="text-rose-400 hover:underline"
+                        onClick={() => deleteMemory.mutate(item.id)}>
+                  删除
+                </button>
+              </li>
+            ))}
+            {(memories.data?.items ?? []).length === 0 && (
+              <li className="text-slate-500">该员工还没有私有记忆</li>
+            )}
+          </ul>
+          <p className="text-xs text-slate-600">
+            Agent 也可通过 memory.remember 工具写入自己的私有记忆；提升为项目/公司共享请在「记忆中心」操作。
+          </p>
+        </div>
       </section>
 
       <section className="rounded border border-slate-800 p-4">

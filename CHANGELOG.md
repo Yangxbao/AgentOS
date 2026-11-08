@@ -2,6 +2,26 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased] - M3-B/C/D/F 批次
+
+### Added
+- **M3-B 递归任务拆分**：pending 子任务可设计划（任务树，nested run 驱动）；深度 ≤4 层/树步骤 ≤50/树工具 ≤100 后端强制；自动分配+decision 记录；replan ≤3 次（只重置失败步骤及下游）+ 计划版本历史；父子预算树聚合（递归不可逃避预算）
+- **M3-C 长期记忆**：memory_item + SQLite FTS5（降级 LIKE）；employee/project/company 三级作用域（跨员工永不互读）；提升仅人工+审计；写入脱敏去重；`<memory>` 不可信注入 + 边界声明；memory.remember/search 工具走五层权限；记忆中心页面
+- **M3-D 多 Worker**：原子认领+租约（60s TTL）；心跳 15s/巡检 30s（过期→interrupted/paused 可恢复，attempt≥3→LEASE_EXHAUSTED）；启动恢复不误伤存活 worker；AGENTOS_WORKER_CONCURRENCY 与公司 max_concurrent_tasks；优先级调度；/workers API
+- **M3-F 端到端业务验收**：GitHub 教程场景 16 项（本地 stub：HTTP 真实访问/真实写入/审查/审批/交付 + 3 个失败场景）
+- **员工配置中心**：员工列表概览（工具/工作区/模型）+ 详情页基本信息编辑、工具授权管理（三态：已授权/策略允许/实际可执行）、工作区授权管理；tools_allowed 写库校验（非法名 422）
+- **嵌套审批自动续跑**：子任务审批恢复 run 成功后父任务自动入队（task.auto_resumed），三层级联验证；审批中心页面 + 任务创建表单补全（指令/预算）+ 审批上下文展示 + Worker 面板
+- **预算预扣**：real 模式调模型前按目录档位预估下一次调用，超支在发生前拦截（mock 预估 0）
+
+### Fixed
+- litellm 1.108.0 传 tools 无条件 import mcp 模块链（未安装即崩）→ _skip_mcp_handler 官方 kwargs 绕过
+- DeepSeek 拒绝带点工具名 → 模型侧名称双射映射（fs.list_dir ⇄ fs__list_dir）
+- 真实模型不知道 workspace_id → workspace_brief 注入（信息非授权）
+- 审批恢复后 tool_state 残留 checkpoint（同步骤重试误判"仍在等审批"）
+- 工具执行开关 env off 时"恢复"静默 no-op → 409 诚实拒绝 + 前端 Toast/onError
+- localhost:5173 页面写请求 403（cross-site）→ Vite 同源代理
+- conftest 固定 TOOL_EXECUTION=off（用户 .env 经 load_dotenv 泄漏进测试进程）
+
 ## [Unreleased] - M3-E 执行监管闸门
 
 ### Added

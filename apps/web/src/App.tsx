@@ -9,6 +9,7 @@ import AssignmentPage from './pages/AssignmentPage'
 import AuditPage from './pages/AuditPage'
 import ImportExportPage from './pages/ImportExportPage'
 import ModelConnectionsPage from './pages/ModelConnectionsPage'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import ApprovalsPage from './pages/ApprovalsPage'
 import MemoryPage from './pages/MemoryPage'
 import MonitorPage from './pages/MonitorPage'
@@ -78,6 +79,7 @@ function Shell() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-auto">
+        <ErrorBoundary>
         <Routes>
           <Route path="/" element={<Navigate to="/tasks" replace />} />
           <Route path="/tasks" element={<TasksPage />} />
@@ -97,6 +99,7 @@ function Shell() {
           <Route path="/settings/organization" element={<OrganizationSettings />} />
           <Route path="*" element={<p className="p-6 text-slate-400">页面不存在</p>} />
         </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   )

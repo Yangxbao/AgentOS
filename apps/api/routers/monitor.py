@@ -80,7 +80,12 @@ def monitor_endpoint(
     db: Session = Depends(get_db),
     actor: ActorContext = Depends(get_actor),
 ):
-    return monitor_summary(db, actor.owner_id, company_id)
+    summary = monitor_summary(db, actor.owner_id, company_id)
+    # Worker 面板数据与 /workers 端点同源（快照类，非页面可缓存状态）
+    from packages.execution.runner import TaskRunner
+
+    summary["workers"] = TaskRunner().workers_snapshot()
+    return summary
 
 
 @router.get("/workers")

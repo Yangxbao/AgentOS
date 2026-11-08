@@ -99,6 +99,10 @@
 
 - **监控页 `/monitor`**（增强）：新增"工具执行（全局）"卡片——显示状态 + **一键紧急停止/恢复按钮**（调 kill switch API，带审计）；"拒绝原因 Top N"；"预算使用率"表格（进行中任务、超 90% 红色预警）
 - **记忆中心 `/settings/memory`**（新增）：作用域过滤、FTS 检索框、写入表单（项目/公司作用域）、提升（employee→project/company）、删除；说明 Agent 私有记忆需提升才共享
+- **监控页 Worker 面板修复（2026-11-09）**：monitor/summary 此前未返回 workers 字段（上轮面板永远空白）——已与 /workers 同源补齐
+- **员工详情记忆区块（2026-11-09）**：列出/写入/删除该员工私有记忆（employee 作用域），方便逐员工测试记忆功能
+- **前端全局 ErrorBoundary（2026-11-09）**：页面子树崩溃显示可读错误+重试，不再白屏
+- **审批中心"要求修改"按钮（2026-11-09）**：三操作与任务详情页对齐
 - **任务创建表单补全（2026-11-09）**：新增执行指令 textarea 与预算 USD 输入（创建即可设预算熔断），
   执行模式下拉本就含 real/mock/auto——明天实验创建 real 任务无需动 .env
 - **审批上下文展示（2026-11-09）**：审批中心与任务详情审批面板显示 context 摘要
@@ -137,7 +141,7 @@
 ## 7. 自动化测试原始结果（2026-11-06 实测，存档 `docs/testing/m3bdf_final_regression.txt`）
 
 ```
-pytest tests/ -q            → 350 passed, 3 skipped（3 skipped 为无权限环境 symlink 用例）
+pytest tests/ -q            → 352 passed, 3 skipped（3 skipped 为无权限环境 symlink 用例）
 ruff check ...              → All checks passed!
 npm run build（tsc -b）      → ✓ 110 modules，496.68 kB (gzip 150.95 kB)，built in 205ms
 alembic current             → m3b_memory_workers (head)
@@ -214,7 +218,7 @@ audit_log 2（本会话 kill switch 端点探活产生的两条记录，内容�
 ```bat
 cd /d E:\AgentOS
 .venv\Scripts\python.exe -m alembic current          REM 期望 m3b_memory_workers (head)
-.venv\Scripts\python.exe -m pytest tests/ -q         REM 期望 350 passed, 3 skipped（约 100s，全 Mock）
+.venv\Scripts\python.exe -m pytest tests/ -q         REM 期望 352 passed, 3 skipped（约 100s，全 Mock）
 .venv\Scripts\python.exe -m ruff check apps packages scripts tests migrations
 .venv\Scripts\python.exe scripts\e2e_m3f.py          REM 期望 16 项通过
 .venv\Scripts\python.exe scripts\browser_acceptance.py   REM 需 8000/5173/9333 空闲；期望 30 项

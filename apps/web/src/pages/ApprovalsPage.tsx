@@ -17,7 +17,7 @@ function errorText(error: unknown): string {
 function DecisionButtons({ approval, onDone }: { approval: Approval; onDone: (ok: boolean, text: string) => void }) {
   const [comment, setComment] = useState('')
   const decide = useMutation({
-    mutationFn: (decision: 'approve' | 'reject') =>
+    mutationFn: (decision: 'approve' | 'reject' | 'request_changes') =>
       tasksApi.decide(approval.id, { decision, comment: comment.trim() }),
     onSuccess: (_result, decision) => {
       onDone(true, decision === 'approve' ? `审批 ${approval.id.slice(0, 8)} 已批准` : `审批 ${approval.id.slice(0, 8)} 已驳回`)
@@ -45,6 +45,13 @@ function DecisionButtons({ approval, onDone }: { approval: Approval; onDone: (ok
         onClick={() => decide.mutate('reject')}
       >
         驳回
+      </button>
+      <button
+        className="rounded bg-orange-700 px-2 py-1 text-xs text-white hover:bg-orange-600 disabled:opacity-50"
+        disabled={decide.isPending}
+        onClick={() => decide.mutate('request_changes')}
+      >
+        要求修改
       </button>
     </div>
   )
