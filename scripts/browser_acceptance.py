@@ -369,6 +369,38 @@ async def run_checks(cdp: CDP, ctx: dict) -> None:
     # 任务标题本身含“待审批”，必须等真正的审批卡片出现，否则会误判
     await cdp.wait_text("关卡：", timeout=30)
     check("B5 执行后停在待审批", "关卡：执行前" in await cdp.text())
+    # B5.5：审批中心页（同一待审批在全局视图可见，且显示任务标题与关卡）
+    await cdp.goto(f"{WEB}/approvals")
+    await cdp.wait_text("审批中心", timeout=15)
+    # 用单次原子 eval 断言（两次 eval 之间撞上 React 重渲染会读到只有 header 的中间态）
+    # SPA 断言必须轮询重试（React 首次提交 + 数据加载存在渲染中间态，单次 eval 会撞上）
+    deadline = time.time() + 15
+    ok_b55 = False
+    b55_text = ""
+    while time.time() < deadline:
+        probe = json.loads(await cdp.eval(
+            "JSON.stringify({"
+            # 审批中心的闸门列显示"执行前"（任务详情页才是"关卡：执行前"）
+            "gate: document.body.innerText.includes('执行前') && document.body.innerText.includes('工具调用类审批'),"
+            "titleHit: document.body.innerText.includes("
+            + json.dumps(ctx["approval"]["title"]) + "),"
+            "text: document.body.innerText.slice(0, 300)"
+            "})"
+        ))
+        ok_b55 = probe["gate"] and probe["titleHit"]
+        b55_text = probe["text"]
+        if ok_b55:
+            break
+        await asyncio.sleep(0.5)
+    check(
+        "B5.5 审批中心聚合显示待审批与任务标题",
+        ok_b55,
+        b55_text,
+    )
+    await cdp.screenshot("05b_approvals_center")
+
+    await cdp.goto(f"{WEB}/tasks/{ctx['approval']['id']}")
+    await cdp.wait_text("关卡：", timeout=15)
     await cdp.set_placeholder("审批意见", "浏览器验收通过")
     await cdp.click("批准")
     await cdp.wait_text("已完成", timeout=30)

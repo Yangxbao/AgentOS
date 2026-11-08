@@ -102,6 +102,7 @@ export interface Approval {
   created_at: string | null
   decided_at: string | null
   task_title?: string
+  context?: Record<string, unknown>
 }
 
 export interface UsageRecord {

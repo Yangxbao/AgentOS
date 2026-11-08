@@ -99,6 +99,12 @@
 
 - **监控页 `/monitor`**（增强）：新增"工具执行（全局）"卡片——显示状态 + **一键紧急停止/恢复按钮**（调 kill switch API，带审计）；"拒绝原因 Top N"；"预算使用率"表格（进行中任务、超 90% 红色预警）
 - **记忆中心 `/settings/memory`**（新增）：作用域过滤、FTS 检索框、写入表单（项目/公司作用域）、提升（employee→project/company）、删除；说明 Agent 私有记忆需提升才共享
+- **任务创建表单补全（2026-11-09）**：新增执行指令 textarea 与预算 USD 输入（创建即可设预算熔断），
+  执行模式下拉本就含 real/mock/auto——明天实验创建 real 任务无需动 .env
+- **审批上下文展示（2026-11-09）**：审批中心与任务详情审批面板显示 context 摘要
+  （tool_call 审批显示"调用工具 X（风险 Y）· 参数"，交付前显示步骤/摘要）——审批人看得见批准的是什么
+- **浏览器验收 B5.5（2026-11-09）**：审批中心页断言（聚合显示待审批+任务标题+闸门）；
+  SPA 断言改单次原子 eval+轮询重试（React 首次提交存在只有 header 的中间态，单次 eval 会撞上）
 - **任务详情页重规划区块（2026-11-08）**：失败/待返工任务显示步骤编辑 + 失败步骤标记 + 提交重规划（≤3 次），上游产出保留
 - **监控页 Worker 面板（2026-11-08）**：在线 worker/租约存活/心跳/队列深度
 - **审批中心 `/approvals`（2026-11-08）**：全公司待审批聚合（任务标题/闸门类型/状态），批准/驳回带备注写审计；状态筛选 + 4 秒轮询；监控页之外的第二处审批入口
@@ -149,7 +155,7 @@ scripts/e2e_m3f.py          → M3-F E2E 完成：16 项通过，0 项失败（1
 ## 8. 浏览器验收结果（Edge + CDP 真实浏览器）
 
 ```
-浏览器验收完成：29 项通过，0 项失败（含 B16 无未捕获 JS 异常）
+浏览器验收完成：30 项通过，0 项失败（含 B16 无未捕获 JS 异常）
 覆盖：任务列表/创建/执行/审批/多 Agent/暂停恢复/组织/监控（含新区块截图 12_monitor.png）/
 工作区授权/工具策略/工具面板/待审批/批准恢复/驳回 等
 证据：docs/testing/m3_browser_acceptance.txt + m3_browser/*.png
@@ -211,7 +217,7 @@ cd /d E:\AgentOS
 .venv\Scripts\python.exe -m pytest tests/ -q         REM 期望 350 passed, 3 skipped（约 100s，全 Mock）
 .venv\Scripts\python.exe -m ruff check apps packages scripts tests migrations
 .venv\Scripts\python.exe scripts\e2e_m3f.py          REM 期望 16 项通过
-.venv\Scripts\python.exe scripts\browser_acceptance.py   REM 需 8000/5173/9333 空闲；期望 29 项
+.venv\Scripts\python.exe scripts\browser_acceptance.py   REM 需 8000/5173/9333 空闲；期望 30 项
 .venv\Scripts\python.exe scripts\run_api.py --port 8000  REM 起后端；前端 cd apps\web && npm run dev → 127.0.0.1:5173（右上角 v0.3.1）
 ```
 

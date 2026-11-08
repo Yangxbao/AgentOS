@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { tasksApi, type Approval } from '../api/tasks'
 import { Toast, useToast } from '../components/Toast'
+import { approvalContextText } from '../components/approvalText'
 
 const GATE_LABEL: Record<string, string> = {
   before_run: '执行前', after_run: '交付前', tool_call: '工具调用',
@@ -105,7 +106,10 @@ export default function ApprovalsPage() {
                   {approval.task_title || approval.task_id.slice(0, 10)}
                 </Link>
               </td>
-              <td className="text-slate-300">{GATE_LABEL[approval.gate] ?? approval.gate}</td>
+              <td className="text-slate-300">
+                {GATE_LABEL[approval.gate] ?? approval.gate}
+                <div className="mt-1 max-w-xs text-slate-500">{approvalContextText(approval) || '—'}</div>
+              </td>
               <td className={approval.status === 'pending' ? 'text-amber-400' : 'text-slate-500'}>
                 {approval.status}
                 {approval.decided_by && <span className="ml-1 text-slate-600">by {approval.decided_by}</span>}

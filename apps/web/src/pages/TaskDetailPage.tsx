@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { tasksApi, type PlanStep } from '../api/tasks'
 import { toolsApi } from '../api/tools'
+import { approvalContextText } from '../components/approvalText'
 import { StateBadge } from './TasksPage'
 
 const ACTIVE_STATES = new Set(['queued', 'running', 'paused', 'awaiting_approval', 'rework_required'])
@@ -192,6 +193,11 @@ export default function TaskDetailPage() {
                 关卡：{approval.gate === 'before_run' ? '执行前' : approval.gate === 'tool_call' ? '工具调用' : '交付后'} · 发起人 {approval.requested_by}
                 {approval.reviewer_employee_id && ` · 指定审查员工 ${data.employees[approval.reviewer_employee_id]?.name ?? approval.reviewer_employee_id}`}
               </div>
+              {approvalContextText(approval) && (
+                <div className="rounded bg-slate-900 px-2 py-1 text-xs text-slate-400">
+                  {approvalContextText(approval)}
+                </div>
+              )}
               <input className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2"
                      placeholder="审批意见（驳回时必填）" value={comment}
                      onChange={(event) => setComment(event.target.value)} />

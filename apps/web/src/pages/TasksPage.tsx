@@ -78,6 +78,8 @@ export default function TasksPage() {
   const [dueAt, setDueAt] = useState('')
   const [approval, setApproval] = useState(false)
   const [mode, setMode] = useState('auto')
+  const [instruction, setInstruction] = useState('')
+  const [budget, setBudget] = useState('')
 
   const activeEmployees = useMemo(
     () => (employees.data?.items ?? []).filter((item) => item.status === 'active'),
@@ -97,10 +99,14 @@ export default function TasksPage() {
       due_at: dueAt ? new Date(dueAt).toISOString() : null,
       approval_required: approval,
       execution_mode: mode,
+      instruction: instruction.trim(),
+      budget_usd: budget ? Number(budget) : null,
     }),
     onSuccess: (task) => {
       setTitle('')
       setObjective('')
+      setInstruction('')
+      setBudget('')
       setApproval(false)
       setOpen(false)
       setMessage(`任务「${task.title}」已创建`)
@@ -195,6 +201,12 @@ export default function TasksPage() {
               <option value="mock">Mock（不调用外部模型）</option>
               <option value="real">真实模型</option>
             </select>
+            <textarea className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-3 py-2"
+                      placeholder="执行指令（单员工任务的完整指令；多步计划建议在详情页设置计划）"
+                      value={instruction} onChange={(event) => setInstruction(event.target.value)} />
+            <input className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-3 py-2"
+                   placeholder="预算 USD（可选，超支自动暂停，如 0.05）"
+                   value={budget} onChange={(event) => setBudget(event.target.value.replace(/[^0-9.]/g, ''))} />
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <input type="checkbox" checked={approval} onChange={(event) => setApproval(event.target.checked)} />
