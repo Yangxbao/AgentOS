@@ -102,6 +102,10 @@
 - **监控页 Worker 面板修复（2026-11-09）**：monitor/summary 此前未返回 workers 字段（上轮面板永远空白）——已与 /workers 同源补齐
 - **员工详情记忆区块（2026-11-09）**：列出/写入/删除该员工私有记忆（employee 作用域），方便逐员工测试记忆功能
 - **前端全局 ErrorBoundary（2026-11-09）**：页面子树崩溃显示可读错误+重试，不再白屏
+- **config_io 扩展（2026-11-09）**：导出/导入包含工作区+授权+记忆（root 非法跳过记 warning，不放宽安全；旧包向后兼容）
+- **FTS 召回混合（2026-11-09）**：FTS 命中不足 top_k 时自动补 LIKE 检索
+- **岗位编辑 UI（2026-11-09）**：员工详情基本信息表单内多选岗位+主岗位（PATCH positions 全量替换）
+- **浏览器验收 B17/B17b（2026-11-09）**：员工配置中心三区块渲染 + 工具勾选保存 Toast 回显（真实 UI 交互断言）
 - **审批中心"要求修改"按钮（2026-11-09）**：三操作与任务详情页对齐
 - **任务创建表单补全（2026-11-09）**：新增执行指令 textarea 与预算 USD 输入（创建即可设预算熔断），
   执行模式下拉本就含 real/mock/auto——明天实验创建 real 任务无需动 .env
@@ -141,7 +145,7 @@
 ## 7. 自动化测试原始结果（2026-11-06 实测，存档 `docs/testing/m3bdf_final_regression.txt`）
 
 ```
-pytest tests/ -q            → 352 passed, 3 skipped（3 skipped 为无权限环境 symlink 用例）
+pytest tests/ -q            → 355 passed, 3 skipped（3 skipped 为无权限环境 symlink 用例）
 ruff check ...              → All checks passed!
 npm run build（tsc -b）      → ✓ 110 modules，496.68 kB (gzip 150.95 kB)，built in 205ms
 alembic current             → m3b_memory_workers (head)
@@ -218,11 +222,11 @@ audit_log 2（本会话 kill switch 端点探活产生的两条记录，内容�
 ```bat
 cd /d E:\AgentOS
 .venv\Scripts\python.exe -m alembic current          REM 期望 m3b_memory_workers (head)
-.venv\Scripts\python.exe -m pytest tests/ -q         REM 期望 352 passed, 3 skipped（约 100s，全 Mock）
+.venv\Scripts\python.exe -m pytest tests/ -q         REM 期望 355 passed, 3 skipped（约 100s，全 Mock）
 .venv\Scripts\python.exe -m ruff check apps packages scripts tests migrations
 .venv\Scripts\python.exe scripts\e2e_m3f.py          REM 期望 16 项通过
 .venv\Scripts\python.exe scripts\browser_acceptance.py   REM 需 8000/5173/9333 空闲；期望 30 项
-.venv\Scripts\python.exe scripts\run_api.py --port 8000  REM 起后端；前端 cd apps\web && npm run dev → 127.0.0.1:5173（右上角 v0.3.1）
+.venv\Scripts\python.exe scripts\run_api.py --port 8000  REM 起后端；前端 cd apps\web && npm run dev → 127.0.0.1:5173（右上角 v0.3.1，含审批中心导航）
 ```
 
 ---

@@ -91,3 +91,123 @@ def test_import_rejects_invalid_bundle(write_client):
     resp = write_client.post("/api/v1/config/import", content=b"not-a-zip")
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "IMPORT_INVALID_BUNDLE"
+
+
+# ---------------------------------------------------------------- M3 后：工作区/授权/记忆随包迁移
+
+
+def test_export_includes_workspaces_grants_memories(
+    write_client, seeded_company, seeded_connection, seeded_employee, seeded_workspace
+):
+    """导出包含工作区/授权/记忆三个新文件与 counts。"""
+    grant = write_client.post(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/grants",
+        json={"employee_id": seeded_employee["id"], "access": "read"},
+    )
+    assert grant.status_code == 201, grant.text
+    resp = write_client.post(
+        f"/api/v1/companies/{seeded_company['id']}/memories",
+        json={"scope": "employee", "employee_id": seeded_employee["id"],
+              "title": "导出记忆", "content": "随包迁移的唯一内容 unique-export-mem"},
+    )
+    assert resp.status_code == 201, resp.text
+
+    data = _export(write_client, seeded_company["id"])
+    names = _zip_names(data)
+    assert "workspaces.json" in names
+    assert "workspace_grants.json" in names
+    assert "memories.json" in names
+
+    bundle = zipfile.ZipFile(io.BytesIO(data))
+    workspaces = json.loads(bundle.read("workspaces.json"))
+    grants = json.loads(bundle.read("workspace_grants.json"))
+    memories = json.loads(bundle.read("memories.json"))
+    assert any(w["root_path"] == seeded_workspace["root_path"] for w in workspaces)
+    assert any(g["employee_id"] == seeded_employee["id"] for g in grants)
+    assert any(m["content"] == "随包迁移的唯一内容 unique-export-mem" for m in memories)
+
+    manifest = json.loads(bundle.read("manifest.json"))
+    assert manifest["counts"]["workspaces"] == len(workspaces)
+    assert manifest["counts"]["memories"] == len(memories)
+
+
+def test_import_roundtrips_workspaces_grants_memories(
+    write_client, seeded_company, seeded_connection, seeded_employee, seeded_workspace
+):
+    """导出 → 导入（rename）：新公司获得工作区/授权/记忆，且映射到新员工 id；记忆可检索。"""
+    write_client.post(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/grants",
+        json={"employee_id": seeded_employee["id"], "access": "read"},
+    )
+    write_client.post(
+        f"/api/v1/companies/{seeded_company['id']}/memories",
+        json={"scope": "employee", "employee_id": seeded_employee["id"],
+              "title": "往返记忆", "content": "roundtrip-mem-content"},
+    )
+    data = _export(write_client, seeded_company["id"])
+
+    result = _import(write_client, data)
+    assert result["counts"]["workspaces"] == 1
+    assert result["counts"]["workspace_grants"] >= 1
+    assert result["counts"]["memories"] >= 1
+
+    new_company_id = result["company_id"]
+    workspaces = write_client.get(f"/api/v1/companies/{new_company_id}/workspaces").json()
+    assert len(workspaces) == 1
+    imported_ws = workspaces[0]
+    assert imported_ws["root_path"] == seeded_workspace["root_path"]
+
+    # 授权映射到新员工（rename 策略下 id 全新）
+    imported_employees = write_client.get(
+        f"/api/v1/companies/{new_company_id}/employees?page_size=100"
+    ).json()["items"]
+    new_emp_ids = {e["id"] for e in imported_employees}
+    grant_employee_ids = {g["employee_id"] for g in imported_ws["grants"]}
+    assert grant_employee_ids and grant_employee_ids.issubset(new_emp_ids)
+
+    # 记忆可检索（新公司、新员工视角）
+    resp = write_client.get(
+        f"/api/v1/memories/search?q=roundtrip-mem-content&company_id={new_company_id}"
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["total"] >= 1
+
+
+def test_import_skips_workspace_with_invalid_root(write_client, seeded_company,
+                                                  seeded_connection, seeded_employee):
+    """root 非法的工作区导入时跳过并记 warning（不阻断整体导入，不放宽安全）。"""
+    data = _export(write_client, seeded_company["id"])
+    bundle = zipfile.ZipFile(io.BytesIO(data))
+    workspaces = json.loads(bundle.read("workspaces.json")) if "workspaces.json" in bundle.namelist() else []
+    workspaces.append({
+        "id": "fake000000000000000000000000", "name": "越权工作区",
+        "slug": "evil", "root_path": r"C:\Windows", "mode": "read_write",
+        "status": "active", "description": "",
+    })
+    payload_files = {name: bundle.read(name) for name in bundle.namelist()}
+    payload_files["workspaces.json"] = json.dumps(workspaces, ensure_ascii=False).encode("utf-8")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, content in payload_files.items():
+            archive.writestr(name, content)
+    patched = buffer.getvalue()
+
+    result = _import(write_client, patched)
+    warnings = result.get("warnings") or []
+    assert any("越权工作区" in w for w in warnings)
+    new_company_id = result["company_id"]
+    names = [w["name"] for w in write_client.get(
+        f"/api/v1/companies/{new_company_id}/workspaces"
+    ).json()]
+    assert "越权工作区" not in names
+
+
+def _import(write_client, data: bytes) -> dict:
+    resp = write_client.post(
+        "/api/v1/config/import?dry_run=false",
+        content=data,
+        headers={"Content-Type": "application/zip", **WRITE_HEADERS},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()

@@ -68,6 +68,24 @@ def export_company(session: Session, owner_id: str, company_id: str) -> bytes:
     employees = list(session.execute(
         select(Employee).where(Employee.company_id == company_id, Employee.deleted_at.is_(None))
     ).scalars().all())
+    # M3 后：工作区/授权/记忆一并导出（跨公司迁移场景；root_path 原样记录，导入时按同机路径校验）
+    from packages.tools.workspaces import Workspace  # noqa: PLC0415 - 延迟导入避免包间循环
+
+    workspaces = list(session.execute(
+        select(Workspace).where(Workspace.company_id == company_id).order_by(Workspace.name)
+    ).scalars().all())
+    from packages.persistence.models import EmployeeWorkspaceGrant, MemoryItem
+
+    workspace_grants = list(session.execute(
+        select(EmployeeWorkspaceGrant)
+        .join(Workspace, Workspace.id == EmployeeWorkspaceGrant.workspace_id)
+        .where(Workspace.company_id == company_id)
+    ).scalars().all())
+    memories = list(session.execute(
+        select(MemoryItem).where(
+            MemoryItem.company_id == company_id, MemoryItem.status == "active"
+        )
+    ).scalars().all())
 
     employees_payload = []
     prompt_files: dict[str, str] = {}
@@ -117,6 +135,9 @@ def export_company(session: Session, owner_id: str, company_id: str) -> bytes:
             "model_connections": len(connections),
             "employees": len(employees),
             "prompts": len(prompt_files),
+            "workspaces": len(workspaces),
+            "workspace_grants": len(workspace_grants),
+            "memories": len(memories),
         },
         "contains_secrets": False,
     }
@@ -148,6 +169,24 @@ def export_company(session: Session, owner_id: str, company_id: str) -> bytes:
             } for c in connections
         ], ensure_ascii=False, indent=2),
         "employees.json": json.dumps(employees_payload, ensure_ascii=False, indent=2),
+        "workspaces.json": json.dumps([
+            {
+                "id": w.id, "name": w.name, "slug": w.slug, "root_path": w.root_path,
+                "mode": w.mode, "status": w.status, "description": w.description,
+            } for w in workspaces
+        ], ensure_ascii=False, indent=2),
+        "workspace_grants.json": json.dumps([
+            {
+                "workspace_id": g.workspace_id, "employee_id": g.employee_id,
+                "access": g.access,
+            } for g in workspace_grants
+        ], ensure_ascii=False, indent=2),
+        "memories.json": json.dumps([
+            {
+                "scope": m.scope, "employee_id": m.employee_id, "kind": m.kind,
+                "title": m.title, "content": m.content, "tags": m.tags,
+            } for m in memories if m.status == "active"
+        ], ensure_ascii=False, indent=2),
     }
     payload.update(prompt_files)
 
@@ -250,6 +289,12 @@ def import_company(
     positions = _json(files, "positions.json")
     connections = _json(files, "connections.json")
     employees = _json(files, "employees.json")
+    # M3 后：三个新文件可选（向后兼容旧包）；工作区 root_path 原样导入并按创建同一标准校验，
+    # 非法/不存在的路径跳过并记录 warning（不阻断整体导入）
+    workspaces = _json(files, "workspaces.json") if "workspaces.json" in files else []
+    workspace_grants = _json(files, "workspace_grants.json") if "workspace_grants.json" in files else []
+    memories = _json(files, "memories.json") if "memories.json" in files else []
+    warnings: list[str] = []
 
     if strategy not in ("rename",):
         raise DomainError("IMPORT_STRATEGY_UNSUPPORTED", "B4 仅支持 rename 冲突策略", 422)
@@ -338,6 +383,78 @@ def import_company(
                 employee = session.get(Employee, employee_map[item["id"]])
                 employee.reports_to = employee_map[item["reports_to"]]
 
+        # M3 后：工作区导入（root 原样 + validate_root 同标准校验；非法跳过记 warning）
+        from packages.persistence.models import EmployeeWorkspaceGrant as _Grant
+        from packages.persistence.models import MemoryItem as _Memory
+        from packages.persistence.models import Workspace as _Workspace
+        from packages.tools.workspaces import validate_root  # noqa: PLC0415
+
+        workspace_map: dict[str, str] = {}
+        for item in workspaces:
+            try:
+                resolved = validate_root(str(item.get("root_path") or ""), must_exist=False)
+            except DomainError as exc:
+                warnings.append(f"跳过工作区「{item.get('name')}」：{exc.message}")
+                continue
+            new_ws_id = new_id()
+            workspace_map[item["id"]] = new_ws_id
+            session.add(_Workspace(
+                id=new_ws_id, owner_id=owner_id, company_id=new_company.id,
+                name=item.get("name", "工作区"), slug=item.get("slug") or new_ws_id,
+                root_path=str(resolved), mode=item.get("mode", "read_write"),
+                status=item.get("status", "active"), description=item.get("description", ""),
+                created_by="import",
+            ))
+        session.flush()
+
+        for item in workspace_grants:
+            new_ws_id = workspace_map.get(item.get("workspace_id"))
+            new_emp_id = employee_map.get(item.get("employee_id"))
+            if not new_ws_id or not new_emp_id:
+                warnings.append("跳过工作区授权：工作区或员工在本次导入中不存在")
+                continue
+            session.add(_Grant(
+                id=new_id(), owner_id=owner_id, employee_id=new_emp_id,
+                workspace_id=new_ws_id, access=item.get("access", "read"),
+                granted_by="import",
+            ))
+        session.flush()
+
+        # 记忆导入：仅 active；作用域映射（employee → 新员工 id；project/company → 新公司）
+        from hashlib import sha256 as _sha256
+
+        for item in memories:
+            if item.get("scope") == "employee" and item.get("employee_id") not in employee_map:
+                warnings.append(f"跳过记忆「{item.get('title')}」：原员工不在本次导入中")
+                continue
+            content = str(item.get("content") or "")
+            if not content.strip():
+                continue
+            new_mem_id = new_id()
+            session.add(_Memory(
+                id=new_mem_id, owner_id=owner_id, company_id=new_company.id,
+                scope=item.get("scope", "employee"),
+                employee_id=employee_map.get(item.get("employee_id")) if item.get("scope") == "employee" else None,
+                project_task_id=None, kind=item.get("kind", "note"),
+                title=str(item.get("title") or "")[:200], content=content,
+                content_hash=_sha256(content.strip().encode("utf-8")).hexdigest(),
+                tags=item.get("tags") or [], status="active",
+                created_by="import", created_by_type="user",
+            ))
+        session.flush()
+        # FTS 同步（表存在才生效；FTS5 不可用则检索降级 LIKE，不影响导入）
+        try:
+            from packages.memory.service import _fts_sync
+
+            for mem_row in session.execute(
+                select(_Memory).where(
+                    _Memory.company_id == new_company.id, _Memory.created_by == "import"
+                )
+            ).scalars().all():
+                _fts_sync(session, mem_row)
+        except Exception:  # noqa: BLE001 - FTS 同步失败不影响导入（降级检索仍可用）
+            pass
+
         prompt_count = 0
         for item in employees:
             new_employee_id = employee_map[item["id"]]
@@ -379,7 +496,10 @@ def import_company(
                     "departments": len(dept_map), "positions": len(position_map),
                     "model_connections": len(connection_map), "employees": len(employee_map),
                     "prompts": prompt_count,
+                    "workspaces": len(workspace_map), "workspace_grants": len(workspace_grants),
+                    "memories": len(memories),
                 },
+                "warnings": warnings,
             },
             actor_id=actor_id, request_id=request_id, commit=False,
         )
@@ -402,5 +522,8 @@ def import_company(
             "departments": len(dept_map), "positions": len(position_map),
             "model_connections": len(connection_map), "employees": len(employee_map),
             "prompts": prompt_count,
+            "workspaces": len(workspace_map), "workspace_grants": len(workspace_grants),
+            "memories": len(memories),
         },
+        "warnings": warnings,
     }

@@ -449,6 +449,37 @@ async def run_checks(cdp: CDP, ctx: dict) -> None:
     check("B11 员工详情权限与提示词区块", "提示词版本" in await cdp.text())
     await cdp.screenshot("10_employee_detail")
 
+    # 8.5 员工配置中心：三区块渲染 + 工具勾选保存回显（B17）
+    deadline_b17 = time.time() + 15
+    ok_b17 = False
+    probe_text = ""
+    while time.time() < deadline_b17 and not ok_b17:
+        probe = json.loads(await cdp.eval(
+            "JSON.stringify({"
+            "tools: document.body.innerText.includes('工具授权管理'),"
+            "ws: document.body.innerText.includes('工作区授权管理'),"
+            "mem: document.body.innerText.includes('员工记忆'),"
+            "pos: document.body.innerText.includes('岗位'),"
+            "text: document.body.innerText.slice(0, 200)"
+            "})"
+        ))
+        probe_text = probe["text"]
+        ok_b17 = probe["tools"] and probe["ws"] and probe["mem"] and probe["pos"]
+        if not ok_b17:
+            await asyncio.sleep(0.5)
+    check("B17 员工配置中心三区块渲染", ok_b17, probe_text)
+    # 勾选 fs.list_dir 并保存 → Toast 回显（白名单持久化走真实 API）
+    await cdp.eval(
+        "(() => { const rows = [...document.querySelectorAll('tr')]"
+        ".find(tr => tr.textContent.includes('fs.list_dir'));"
+        " if (!rows) return false; const box = rows.querySelector('input[type=checkbox]');"
+        " if (!box || box.checked) return false; box.click(); return true; })()"
+    )
+    await cdp.click("保存工具白名单")
+    await cdp.wait_text("工具白名单已保存", timeout=15)
+    check("B17b 工具白名单保存后 Toast 回显", "工具白名单已保存" in await cdp.text())
+    await cdp.screenshot("10b_employee_config")
+
     # 9. 组织设置：浏览器创建部门
     await cdp.goto(f"{WEB}/settings/organization")
     await cdp.wait_text("添加部门")

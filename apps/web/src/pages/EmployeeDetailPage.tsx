@@ -46,6 +46,11 @@ export default function EmployeeDetailPage() {
     queryFn: () => orgApi.listDepartments(companyId!),
     enabled: Boolean(companyId),
   })
+  const positions = useQuery({
+    queryKey: ['positions', companyId],
+    queryFn: () => orgApi.listPositions(companyId!),
+    enabled: Boolean(companyId),
+  })
 
   const [primary, setPrimary] = useState('')
   const [fallback, setFallback] = useState('')
@@ -100,6 +105,8 @@ export default function EmployeeDetailPage() {
 
   // ---------- A. 基本信息编辑 ----------
   const [profile, setProfile] = useState<Record<string, string> | null>(null)
+  const [profilePositions, setProfilePositions] = useState<string[] | null>(null)
+  const [primaryPosition, setPrimaryPosition] = useState<string | null>(null)
   const profileDraft = profile ?? {
     name: employee.data?.name ?? '',
     title: employee.data?.title ?? '',
@@ -115,9 +122,17 @@ export default function EmployeeDetailPage() {
         bio: profileDraft.bio,
         personality: profileDraft.personality,
         department_id: profileDraft.department_id || null,
+        ...(profilePositions !== null
+          ? { positions: profilePositions.map((positionId) => ({
+              position_id: positionId,
+              is_primary: positionId === (primaryPosition ?? data?.positions.find((p) => p.is_primary)?.position_id),
+            })) }
+          : {}),
       }),
     onSuccess: (updated) => {
       setProfile(null)
+      setProfilePositions(null)
+      setPrimaryPosition(null)
       showToast('success', `员工「${updated.name}」基本信息已保存`)
       queryClient.invalidateQueries({ queryKey: ['employee', id] })
       queryClient.invalidateQueries({ queryKey: ['employees'] })
@@ -278,6 +293,38 @@ export default function EmployeeDetailPage() {
                 <option key={dept.id} value={dept.id}>{dept.name}</option>
               ))}
             </select>
+            <div className="rounded border border-slate-700 bg-slate-900 p-2">
+              <div className="text-xs text-slate-500">岗位（可多选；保存后全量替换）</div>
+              <div className="mt-1 space-y-1">
+                {(positions.data?.items ?? []).map((position) => {
+                  const current = profilePositions ?? data?.positions.map((p) => p.position_id) ?? []
+                  const checked = current.includes(position.id)
+                  const primaryId = primaryPosition ?? data?.positions.find((p) => p.is_primary)?.position_id
+                  return (
+                    <label key={position.id} className="flex items-center gap-2 text-xs text-slate-300">
+                      <input type="checkbox" checked={checked}
+                             onChange={() => {
+                               const next = checked ? current.filter((x) => x !== position.id) : [...current, position.id]
+                               setProfilePositions(next)
+                               if (!checked && primaryId === null) setPrimaryPosition(position.id)
+                             }} />
+                      {position.name}
+                      {checked && (
+                        <label className="ml-auto flex items-center gap-1 text-slate-500">
+                          <input type="radio" name="primary-position"
+                                 checked={primaryId === position.id}
+                                 onChange={() => setPrimaryPosition(position.id)} />
+                          主岗
+                        </label>
+                      )}
+                    </label>
+                  )
+                })}
+                {(positions.data?.items ?? []).length === 0 && (
+                  <span className="text-slate-500">本公司还没有岗位，请到「组织设置」创建</span>
+                )}
+              </div>
+            </div>
             <div className="flex items-center gap-2">
               <button className="rounded bg-sky-600 px-4 py-1.5 text-sm text-white disabled:opacity-50"
                       disabled={saveProfile.isPending || !profileDraft.name.trim()}
@@ -291,7 +338,7 @@ export default function EmployeeDetailPage() {
                 </button>
               )}
             </div>
-            <p className="text-xs text-slate-600">岗位调整请到「组织设置」维护岗位后在此所属部门下管理。</p>
+            <p className="text-xs text-slate-600">岗位清单来自组织设置；新岗位请先到「组织设置」创建。</p>
           </div>
         </div>
 

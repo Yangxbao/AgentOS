@@ -329,6 +329,23 @@ def search_memories(
                 ).scalars().all()
             }
         candidates = [items_by_id[i] for i in ids if i in items_by_id]
+        if len(candidates) < top_k:
+            # FTS 召回不足（中文 unicode61 分词对词形变化敏感）→ LIKE 补充提高召回
+            from sqlalchemy import or_
+
+            like_clauses = [
+                MemoryItem.content.like(f"%{token}%") | MemoryItem.title.like(f"%{token}%")
+                for token in query.split()[:8] if token
+            ]
+            if like_clauses:
+                extra = session.execute(
+                    select(MemoryItem).where(
+                        MemoryItem.owner_id == owner_id, MemoryItem.status == "active",
+                        or_(*like_clauses),
+                    )
+                ).scalars().all()
+                seen_ids = {item.id for item in candidates}
+                candidates.extend([item for item in extra if item.id not in seen_ids])
     else:
         # FTS5 不可用：LIKE 降级（任一 token 命中即可）
         like_clauses = [
