@@ -58,6 +58,39 @@ PROVIDERS: dict[str, ProviderInfo] = {
         id="openrouter", label="OpenRouter", api_key_env="OPENROUTER_API_KEY",
         models=[
             ModelInfo("openrouter/deepseek/deepseek-chat", "DeepSeek Chat (OpenRouter)", 64_000, cost_tier="budget"),
+            ModelInfo("openrouter/meta-llama/llama-3.3-70b-instruct:free",
+                      "Llama 3.3 70B（:free 免费档）", 128_000, cost_tier="local"),
+            ModelInfo("openrouter/deepseek/deepseek-chat:free",
+                      "DeepSeek Chat（:free 免费档）", 64_000, cost_tier="local"),
+        ],
+    ),
+    "zhipu": ProviderInfo(
+        id="zhipu", label="智谱 AI", api_key_env="ZHIPU_API_KEY",
+        models=[
+            ModelInfo("openai/glm-4-flash", "GLM-4-Flash（免费）", 128_000, cost_tier="local"),
+            ModelInfo("openai/glm-4.5-flash", "GLM-4.5-Flash（免费）", 128_000, cost_tier="local"),
+            ModelInfo("openai/glm-4-plus", "GLM-4-Plus", 128_000, cost_tier="premium"),
+        ],
+    ),
+    "siliconflow": ProviderInfo(
+        id="siliconflow", label="硅基流动", api_key_env="SILICONFLOW_API_KEY",
+        models=[
+            ModelInfo("openai/Qwen/Qwen2.5-7B-Instruct", "Qwen2.5-7B（免费）", 32_000, cost_tier="local"),
+            ModelInfo("openai/THUDM/glm-4-9b-chat", "GLM-4-9B（免费）", 32_000, cost_tier="local"),
+        ],
+    ),
+    "groq": ProviderInfo(
+        id="groq", label="Groq（免费档）", api_key_env="GROQ_API_KEY",
+        models=[
+            ModelInfo("openai/llama-3.3-70b-versatile", "Llama 3.3 70B（免费档）", 128_000, cost_tier="local"),
+            ModelInfo("openai/llama-3.1-8b-instant", "Llama 3.1 8B（免费档）", 128_000, cost_tier="local"),
+        ],
+    ),
+    "baidu": ProviderInfo(
+        id="baidu", label="百度千帆（免费模型）", api_key_env="BAIDU_API_KEY",
+        models=[
+            ModelInfo("openai/ernie-speed-8k", "ERNIE Speed 8K（免费）", 8_000, cost_tier="local"),
+            ModelInfo("openai/ernie-lite-8k", "ERNIE Lite 8K（免费）", 8_000, cost_tier="local"),
         ],
     ),
     "ollama": ProviderInfo(
