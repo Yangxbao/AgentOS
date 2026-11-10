@@ -262,7 +262,11 @@ cd /d E:\AgentOS
 
 ---
 
-## 附：明天的真实模型文件读取实验（手动执行，是否产生费用由用户决定）
+## 附：真实模型文件读取实验（✅ 已于 2026-11-11 由 ZCode 代跑完成，PASS——费用 $0.00044，详见 docs/acceptance/2026-11-11_真实实验报告.md）
+
+> 以下为当时的实验步骤，保留供复现与扩展实验（多员工协作/审批/记忆/预算熔断）参考。
+
+### 原始步骤
 
 前置（已就绪）：`.env` 已有 `AGENTOS_TOOL_EXECUTION=on`；工作区 `experiment_workspace`（根目录 `E:\AgentOS\experiment_workspace`）与文件 `test.txt`（内容："大肥鱼是诗人"，用户自建）已存在并入库。
 
