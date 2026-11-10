@@ -15,6 +15,17 @@ function MemoryCard({ item, onChanged }: { item: MemoryItem; onChanged: () => vo
     mutationFn: (to: 'project' | 'company') => memoryApi.promote(item.id, to),
     onSuccess: onChanged,
   })
+  const [editing, setEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState(item.title)
+  const [editContent, setEditContent] = useState(item.content)
+  const update = useMutation({
+    mutationFn: () =>
+      memoryApi.update(item.id, { title: editTitle.trim(), content: editContent.trim() }),
+    onSuccess: () => {
+      setEditing(false)
+      onChanged()
+    },
+  })
   return (
     <div className="rounded border border-slate-800 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -22,11 +33,35 @@ function MemoryCard({ item, onChanged }: { item: MemoryItem; onChanged: () => vo
           <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
             {SCOPE_LABEL[item.scope] ?? item.scope}
           </span>
-          <span className="text-sm font-medium">{item.title || '（无标题）'}</span>
+          {editing ? (
+            <input className="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-sm text-slate-100"
+                   value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          ) : (
+            <span className="text-sm font-medium">{item.title || '（无标题）'}</span>
+          )}
           <span className="text-xs text-slate-500">{item.kind}</span>
         </div>
         <div className="flex items-center gap-2 text-xs">
-          {item.scope === 'employee' && (
+          {editing ? (
+            <>
+              <button className="rounded bg-sky-600 px-2 py-1 text-white disabled:opacity-50"
+                      disabled={update.isPending || !editContent.trim()}
+                      onClick={() => update.mutate()}>
+                保存
+              </button>
+              <button className="text-slate-400 hover:underline" onClick={() => setEditing(false)}>
+                取消
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="text-sky-400 hover:underline"
+                      onClick={() => { setEditTitle(item.title); setEditContent(item.content); setEditing(true) }}>
+                编辑
+              </button>
+            </>
+          )}
+          {item.scope === 'employee' && !editing &&(
             <>
               <button
                 className="text-sky-400 hover:underline"
@@ -50,7 +85,12 @@ function MemoryCard({ item, onChanged }: { item: MemoryItem; onChanged: () => vo
           </button>
         </div>
       </div>
-      <p className="mt-2 whitespace-pre-wrap text-xs text-slate-300">{item.content}</p>
+      {editing ? (
+        <textarea className="mt-2 h-24 w-full rounded border border-slate-700 bg-slate-900 p-2 text-xs text-slate-100"
+                  value={editContent} onChange={(e) => setEditContent(e.target.value)} />
+      ) : (
+        <p className="mt-2 whitespace-pre-wrap text-xs text-slate-300">{item.content}</p>
+      )}
       <p className="mt-1 text-xs text-slate-500">
         来源：{item.created_by_type} · {item.created_at.replace('T', ' ').slice(0, 19)}
       </p>

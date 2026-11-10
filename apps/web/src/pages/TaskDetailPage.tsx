@@ -366,7 +366,12 @@ export default function TaskDetailPage() {
                   放弃修改
                 </button>
               )}
-              <span className="text-xs text-slate-500">提交后请点「重试」让任务重新入队。</span>
+              <button className="rounded bg-sky-700 px-3 py-1 text-xs text-white disabled:opacity-50"
+                      disabled={retry.isPending}
+                      onClick={() => retry.mutate()}>
+                重试任务（重新入队）
+              </button>
+              <span className="text-xs text-slate-500">重试只执行被重置的失败步骤及下游。</span>
             </div>
           </div>
         </section>
@@ -535,6 +540,14 @@ export default function TaskDetailPage() {
         <p className="mt-1 text-xs text-slate-500">
           调用 {data.usage.calls} 次 · 合计 {data.usage.total_tokens} tokens · ${data.usage.total_cost_usd.toFixed(6)}
           {data.usage.unknown_cost_records > 0 && `（${data.usage.unknown_cost_records} 条计价失败，未编造金额）`}
+          {data.budget_usd != null && (
+            <>
+              {' '}· 预算 ${data.budget_usd.toFixed(2)}
+              <span className={data.usage.total_cost_usd > data.budget_usd ? 'text-rose-400' : 'text-emerald-400'}>
+                （已用 {((data.usage.total_cost_usd / data.budget_usd) * 100).toFixed(1)}%）
+              </span>
+            </>
+          )}
         </p>
         <table className="mt-2 w-full text-left text-xs">
           <thead className="text-slate-500">

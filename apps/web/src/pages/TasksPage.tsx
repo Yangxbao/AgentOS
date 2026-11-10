@@ -54,10 +54,11 @@ export default function TasksPage() {
   }, [companies.data, companyId])
 
   const [stateFilter, setStateFilter] = useState('')
+  const [q, setQ] = useState('')
   const tasks = useQuery({
-    queryKey: ['tasks', activeCompanyId, stateFilter],
+    queryKey: ['tasks', activeCompanyId, stateFilter, q],
     queryFn: () => tasksApi.list(activeCompanyId as string, {
-      page_size: 100, ...(stateFilter ? { state: stateFilter } : {}),
+      page_size: 100, ...(stateFilter ? { state: stateFilter } : {}), ...(q ? { q } : {}),
     }),
     enabled: Boolean(activeCompanyId),
     refetchInterval: 3000,
@@ -138,6 +139,12 @@ export default function TasksPage() {
             <option key={value} value={value}>{label}</option>
           ))}
         </select>
+        <input
+          className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-200"
+          placeholder="搜索标题/目标…"
+          value={q}
+          onChange={(event) => setQ(event.target.value)}
+        />
         <span className="text-xs text-slate-500">共 {tasks.data?.total ?? 0} 个任务</span>
         <button
           className="ml-auto rounded bg-sky-600 px-4 py-1.5 text-sm text-white"

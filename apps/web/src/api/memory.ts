@@ -34,7 +34,7 @@ export const memoryApi = {
   remove: (id: string) => api.delete<{ id: string; status: string }>(`/api/v1/memories/${id}`),
   promote: (id: string, toScope: 'project' | 'company') =>
     api.post<MemoryItem>(`/api/v1/memories/${id}/promote`, { to_scope: toScope }),
-  search: (params: { q: string; company_id?: string; top_k?: number }) => {
+  search: (params: { q: string; company_id?: string; employee_id?: string; top_k?: number }) => {
     const query = new URLSearchParams(
       Object.entries(params).map(([key, value]) => [key, String(value)]),
     ).toString()

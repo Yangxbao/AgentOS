@@ -2,6 +2,22 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased] - 实验前完善批次（2026-11-08/09）
+
+### Added
+- 员工配置中心：员工列表概览（工具/工作区/模型）+ 详情页基本信息/岗位/工具白名单（三态）/工作区授权/私有记忆编辑与检索预览；tools_allowed 写库校验
+- 嵌套审批自动续跑（含三层级联验证）+ 审批中心页面 + 审批上下文展示（工具/风险/参数）
+- 任务创建表单补全（执行指令/预算）；失败任务重规划 UI（含内联重试）；监控页 Worker/租约面板
+- 预算预扣：real 模式调模型前按目录档位预估，超支在发生前拦截（mock 预估 0）
+- config_io 扩展：工作区/授权/记忆随包迁移（root 校验同标准，非法跳过记 warning；旧包兼容）
+- FTS 召回混合（命中不足补 LIKE）；前端全局 ErrorBoundary；浏览器验收 B5.5/B17/B17b（30→32 项）
+
+### Fixed
+- litellm 传 tools 即崩（mcp 导入缺陷）→ _skip_mcp_handler；DeepSeek 工具名字符集 → 名称双射映射
+- 工具执行开关 env off 时"恢复"静默 no-op → 409 诚实拒绝；localhost 写请求 403 → Vite 同源代理
+- 审批恢复后 tool_state 残留 checkpoint；monitor/summary 缺 workers 字段（面板永远空白）
+- conftest 隔离用户 .env 泄漏；测试夹具假工具名 file.write → fs.write_file
+
 ## [Unreleased] - M3-B/C/D/F 批次
 
 ### Added

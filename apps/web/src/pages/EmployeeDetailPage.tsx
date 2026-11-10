@@ -250,6 +250,17 @@ export default function EmployeeDetailPage() {
     onError: (error) => showToast('error', errorText(error)),
   })
 
+  // 检索预览：以该员工视角搜索（含项目/公司共享；验证记忆隔离的直连工具）
+  const [previewQuery, setPreviewQuery] = useState('')
+  const [previewEnabled, setPreviewEnabled] = useState(false)
+  const preview = useQuery({
+    queryKey: ['employee-memory-preview', companyId, id, previewQuery],
+    queryFn: () => memoryApi.search({
+      q: previewQuery, company_id: companyId as string, employee_id: id as string, top_k: 10,
+    }),
+    enabled: previewEnabled && Boolean(companyId) && previewQuery.trim().length > 0,
+  })
+
   if (employee.isLoading) return <p className="p-6 text-slate-400">加载中…</p>
   if (employee.isError || !employee.data) return <p className="p-6 text-red-400">员工不存在</p>
   const data = employee.data
@@ -549,6 +560,30 @@ export default function EmployeeDetailPage() {
               <li className="text-slate-500">该员工还没有私有记忆</li>
             )}
           </ul>
+          <div className="rounded border border-slate-700 bg-slate-900 p-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">检索预览（该员工视角）：</span>
+              <input className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                     placeholder="输入关键词，查看该员工能检索到什么"
+                     value={previewQuery}
+                     onChange={(event) => { setPreviewQuery(event.target.value); setPreviewEnabled(true) }} />
+            </div>
+            {previewEnabled && (
+              <ul className="mt-2 space-y-1 text-xs">
+                {(preview.data?.items ?? []).map((item) => (
+                  <li key={item.id} className="rounded bg-slate-950 px-2 py-1">
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-400">
+                      {item.scope === 'employee' ? '私有' : item.scope === 'project' ? '项目' : '公司'}
+                    </span>
+                    <span className="ml-2 text-slate-300">{item.title || item.content.slice(0, 60)}</span>
+                  </li>
+                ))}
+                {previewQuery.trim() && (preview.data?.items ?? []).length === 0 && (
+                  <li className="text-slate-500">该员工检索不到任何匹配记忆（私有隔离生效时这是预期结果）</li>
+                )}
+              </ul>
+            )}
+          </div>
           <p className="text-xs text-slate-600">
             Agent 也可通过 memory.remember 工具写入自己的私有记忆；提升为项目/公司共享请在「记忆中心」操作。
           </p>
