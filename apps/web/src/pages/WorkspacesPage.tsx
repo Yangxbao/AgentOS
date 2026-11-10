@@ -237,9 +237,92 @@ export default function WorkspacesPage() {
                 </div>
               )}
             </div>
+
+            {workspace.status === 'active' && (
+              <WorkspaceFileBrowser workspaceId={workspace.id} rootPath={workspace.root_path} />
+            )}
           </section>
         ))}
       </div>
+    </div>
+  )
+}
+
+
+// ---------------- 工作区文件浏览器（owner 管理视图，只读） ----------------
+
+type FileEntry = { name: string; type: 'file' | 'dir'; size: number | null }
+
+function formatSize(size: number | null): string {
+  if (size === null) return ''
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(2)} MB`
+}
+
+export function WorkspaceFileBrowser({ workspaceId, rootPath }: { workspaceId: string; rootPath: string }) {
+  const [path, setPath] = useState('')
+  const [preview, setPreview] = useState<{ path: string; content: string; size: number } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const listing = useQuery({
+    queryKey: ['ws-files', workspaceId, path],
+    queryFn: () => toolsApi.browseFiles(workspaceId, path),
+  })
+
+  const openFile = async (name: string) => {
+    setError(null)
+    try {
+      const joined = path ? `${path}/${name}` : name
+      setPreview(await toolsApi.readFile(workspaceId, joined))
+    } catch (err) {
+      setPreview(null)
+      setError(errorText(err))
+    }
+  }
+
+  const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+
+  return (
+    <div className="mt-3 rounded border border-slate-700 bg-slate-950/60 p-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium text-slate-300">文件浏览</span>
+        <span className="font-mono text-slate-500">{rootPath}{path ? `/${path}` : ''}</span>
+        {path && (
+          <button className="text-sky-400 hover:underline"
+                  onClick={() => setPath(parent)}>
+            上一级
+          </button>
+        )}
+        {listing.isFetching && <span className="text-slate-500">刷新中…</span>}
+      </div>
+      {error && <p className="mt-2 text-xs text-rose-400">{error}</p>}
+      {preview && (
+        <pre className="mt-2 max-h-64 overflow-auto rounded bg-slate-950 p-2 text-xs text-slate-300">
+          {preview.content}
+        </pre>
+      )}
+      <ul className="mt-2 space-y-0.5 text-xs">
+        {(listing.data?.entries ?? []).map((entry: FileEntry) => (
+          <li key={entry.name}>
+            {entry.type === 'dir' ? (
+              <button className="text-sky-400 hover:underline"
+                      onClick={() => setPath(path ? `${path}/${entry.name}` : entry.name)}>
+                📁 {entry.name}/
+              </button>
+            ) : (
+              <button className="text-slate-300 hover:text-slate-100"
+                      onClick={() => openFile(entry.name)}>
+                📄 {entry.name}
+                <span className="ml-2 text-slate-600">{formatSize(entry.size)}</span>
+              </button>
+            )}
+          </li>
+        ))}
+        {(listing.data?.entries ?? []).length === 0 && !listing.isLoading && (
+          <li className="text-slate-500">（空目录）</li>
+        )}
+      </ul>
     </div>
   )
 }

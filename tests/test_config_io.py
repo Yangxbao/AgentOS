@@ -286,3 +286,67 @@ def test_dry_run_tolerates_m3_bundle_files(write_client, seeded_company, seeded_
     body = resp.json()
     assert body["dry_run"] is True
     assert body["company_name"] == seeded_company["name"]
+
+
+# ---------------------------------------------------------------- 工作区文件浏览（owner 管理视图）
+
+
+def test_workspace_file_browse_list_and_read(write_client, seeded_company, seeded_employee,
+                                             seeded_workspace, workspace_root):
+    """owner 文件浏览：列目录 + 读文本文件（同工具层安全标准）。"""
+    listing = write_client.get(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/files?path="
+    ).json()
+    assert listing["count"] >= 1
+    names = {entry["name"] for entry in listing["entries"]}
+    assert {"notes", "docs"}.issubset(names)
+
+    # 进入子目录
+    sub = write_client.get(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/files?path=notes"
+    ).json()
+    assert "a.txt" in {entry["name"] for entry in sub["entries"]}
+
+    # 读文本
+    resp = write_client.get(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/files/content?path=notes/a.txt"
+    )
+    assert resp.status_code == 200
+    assert resp.json()["content"] == "hello world"
+    assert resp.json()["path"] == "notes/a.txt"
+
+
+def test_workspace_file_browse_security(write_client, seeded_company, seeded_employee,
+                                        seeded_workspace):
+    """路径逃逸/目录穿越/二进制——owner 视角同样被工具层安全标准拦截。"""
+    # 路径逃逸
+    resp = write_client.get(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/files/content?path=../../.env"
+    )
+    assert resp.status_code in (403, 404)
+    resp = write_client.get(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/files?path=.."
+    )
+    assert resp.status_code in (403, 404)
+
+    # 不存在
+    resp = write_client.get(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/files/content?path=no-such.txt"
+    )
+    assert resp.status_code == 404
+
+    # 不存在的工作区
+    resp = write_client.get(
+        "/api/v1/workspaces/nonexistent0000000000000000/files?path="
+    )
+    assert resp.status_code == 404
+
+
+def test_workspace_file_browse_binary_rejected(write_client, seeded_company, seeded_employee,
+                                               seeded_workspace, workspace_root):
+    """二进制文件（含 NULL）拒绝读取。"""
+    (workspace_root / "blob.bin").write_bytes(b"\x00\x01\x02binary")
+    resp = write_client.get(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/files/content?path=blob.bin"
+    )
+    assert resp.status_code == 415

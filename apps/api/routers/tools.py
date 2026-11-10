@@ -220,6 +220,87 @@ def revoke_workspace_endpoint(
 
 
 # ---------------- 工具目录与公司策略 ----------------
+# ---------------- 工作区文件浏览（owner 管理视图，只读） ----------------
+
+
+@router.get("/workspaces/{workspace_id}/files")
+def browse_workspace_files_endpoint(
+    workspace_id: str,
+    path: str = "",
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor),
+):
+    """列出工作区内目录（owner 管理视图：工作区属 owner 资源，本地用户可浏览；
+
+    路径安全复用工具层 safe_resolve，只读，不上报工具审计——非 Agent 工具调用）。
+    """
+    from pathlib import Path
+
+    from packages.tools.fs import MAX_LIST_ENTRIES
+    from packages.tools.paths import PathDenied, safe_resolve
+    from packages.tools.workspaces import get_workspace
+
+    workspace = get_workspace(db, actor.owner_id, workspace_id)
+    root = Path(workspace.root_path)
+    try:
+        target = safe_resolve(root, path, allow_root=True)
+    except PathDenied as exc:
+        raise DomainError(exc.code, exc.message, 403, exc.detail) from exc
+    if not target.is_dir():
+        raise DomainError("TOOL_PATH_NOT_FOUND", f"目录不存在：{path}", 404)
+
+    entries = []
+    for index, entry in enumerate(sorted(target.iterdir(), key=lambda e: (e.is_file(), e.name))):
+        if index >= MAX_LIST_ENTRIES:
+            break
+        try:
+            size = entry.stat().st_size if entry.is_file() else None
+        except OSError:
+            size = None
+        entries.append({"name": entry.name, "type": "file" if entry.is_file() else "dir", "size": size})
+    return {"path": path, "count": len(entries), "entries": entries,
+            "truncated": len(list(target.iterdir())) > MAX_LIST_ENTRIES}
+
+
+@router.get("/workspaces/{workspace_id}/files/content")
+def read_workspace_file_endpoint(
+    workspace_id: str,
+    path: str,
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor),
+):
+    """读取工作区内文本文件（owner 管理视图：同工具层安全标准——256KB 上限、二进制拒绝、密钥扫描）。"""
+    from pathlib import Path
+
+    from packages.tools.fs import MAX_READ_BYTES, scan_secrets
+    from packages.tools.paths import PathDenied, relative_of, safe_resolve
+    from packages.tools.workspaces import get_workspace
+
+    workspace = get_workspace(db, actor.owner_id, workspace_id)
+    root = Path(workspace.root_path)
+    try:
+        target = safe_resolve(root, path, allow_root=False)
+    except PathDenied as exc:
+        raise DomainError(exc.code, exc.message, 403, exc.detail) from exc
+    if not target.is_file():
+        raise DomainError("TOOL_PATH_NOT_FOUND", f"文件不存在：{path}", 404)
+    size = target.stat().st_size
+    if size > MAX_READ_BYTES:
+        raise DomainError(
+            "TOOL_OUTPUT_TOO_LARGE", f"文件 {size} 字节超过读取上限 {MAX_READ_BYTES}", 413,
+            {"size": size, "limit": MAX_READ_BYTES},
+        )
+    raw = target.read_bytes()
+    if b"\x00" in raw[:8192]:
+        raise DomainError("TOOL_BINARY_UNSUPPORTED", "二进制文件不支持读取", 415)
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise DomainError("TOOL_BINARY_UNSUPPORTED", "文件不是合法 UTF-8 文本", 415) from exc
+    scan_secrets(text)
+    return {"path": relative_of(root, target), "size": size, "content": text}
+
+
 @router.get("/tools")
 def list_tools_endpoint(actor: ActorContext = Depends(get_actor)):
     return {

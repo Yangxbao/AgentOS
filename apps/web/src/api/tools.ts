@@ -125,6 +125,14 @@ export const toolsApi = {
     api.delete<void>(`/api/v1/workspaces/${workspaceId}/grants/${employeeId}`),
 
   catalogue: () => api.get<ToolCatalogue>('/api/v1/tools'),
+  browseFiles: (workspaceId: string, path = '') =>
+    api.get<{ path: string; count: number; entries: Array<{ name: string; type: 'file' | 'dir'; size: number | null }>; truncated: boolean }>(
+      `/api/v1/workspaces/${workspaceId}/files?path=${encodeURIComponent(path)}`,
+    ),
+  readFile: (workspaceId: string, path: string) =>
+    api.get<{ path: string; size: number; content: string }>(
+      `/api/v1/workspaces/${workspaceId}/files/content?path=${encodeURIComponent(path)}`,
+    ),
   getPolicy: (companyId: string) =>
     api.get<ToolPolicyResponse>(`/api/v1/companies/${companyId}/tool-policy`),
   updatePolicy: (companyId: string, patch: Partial<ToolPolicy>) =>
