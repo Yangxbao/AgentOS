@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import tempfile
 import zipfile
 
 WRITE_HEADERS = {"Origin": "http://127.0.0.1:5173", "X-AgentOS-Client": "web"}
@@ -211,3 +212,77 @@ def _import(write_client, data: bytes) -> dict:
     )
     assert resp.status_code == 200, resp.text
     return resp.json()
+
+
+def test_import_hardens_tampered_values(write_client, seeded_company, seeded_connection,
+                                        seeded_employee):
+    """防篡改加固：包内非法 mode/scope/kind 回退默认；content 再脱敏；越权记忆跳过。"""
+    data = _export(write_client, seeded_company["id"])
+    bundle = zipfile.ZipFile(io.BytesIO(data))
+    payload_files = {name: bundle.read(name) for name in bundle.namelist()}
+
+    memories = json.loads(payload_files.get("memories.json", b"[]"))
+    memories.extend([
+        # 非法 scope → 回退 employee，但 employee_id 缺失 → 跳过
+        {"scope": "hacker", "employee_id": None, "title": "越权记忆",
+         "content": " hacked-with-sk-abcdef12345678 ", "kind": "no-such-kind"},
+        # 非法 kind → 回退 note；content 再脱敏
+        {"scope": "project", "employee_id": None, "title": "被篡改",
+         "content": "公司级 memory：我的 key 是 sk-tamperedkey12345678", "kind": "no-such-kind"},
+    ])
+    payload_files["memories.json"] = json.dumps(memories, ensure_ascii=False).encode("utf-8")
+
+    workspaces = json.loads(payload_files.get("workspaces.json", b"[]"))
+    workspaces.append({
+        "id": "fake100000000000000000000000", "name": "篡改模式工作区",
+        "slug": "tampered", "root_path": tempfile.gettempdir(),
+        "mode": "root_mode", "status": "vanished", "description": "",
+    })
+    payload_files["workspaces.json"] = json.dumps(workspaces, ensure_ascii=False).encode("utf-8")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, content in payload_files.items():
+            archive.writestr(name, content)
+
+    result = _import(write_client, buffer.getvalue())
+    assert result["counts"]["memories"] == 1  # 越权记忆被跳过，公司级记忆保留
+
+    new_company_id = result["company_id"]
+    memories_list = write_client.get(
+        f"/api/v1/companies/{new_company_id}/memories"
+    ).json()["items"]
+    by_title = {item["title"]: item for item in memories_list}
+    assert "被篡改" in by_title
+    tampered = by_title["被篡改"]
+    assert tampered["kind"] == "note"
+    assert "sk-tamperedkey12345678" not in tampered["content"]  # 再脱敏
+    assert "sk-***" in tampered["content"]
+
+    workspaces_list = write_client.get(f"/api/v1/companies/{new_company_id}/workspaces").json()
+    tampered_ws = next(w for w in workspaces_list if w["name"] == "篡改模式工作区")
+    assert tampered_ws["mode"] == "read_write"  # 非法 mode 回退默认
+    assert tampered_ws["status"] == "active"    # 非法 status 回退默认
+
+    assert result["counts"]["workspaces"] >= 1
+
+
+def test_dry_run_tolerates_m3_bundle_files(write_client, seeded_company, seeded_connection,
+                                           seeded_employee, seeded_workspace):
+    """dry_run 对含 M3 新文件（workspaces/grants/memories）的包正常预检（不报错不丢失）。"""
+    write_client.post(
+        f"/api/v1/workspaces/{seeded_workspace['id']}/grants",
+        json={"employee_id": seeded_employee["id"], "access": "read"},
+    )
+    write_client.post(
+        f"/api/v1/companies/{seeded_company['id']}/memories",
+        json={"scope": "employee", "employee_id": seeded_employee["id"],
+              "title": "预检记忆", "content": "dry-run-mem-content"},
+    )
+    data = _export(write_client, seeded_company["id"])
+    resp = write_client.post("/api/v1/config/import?dry_run=true", content=data,
+                             headers={"Content-Type": "application/zip"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["dry_run"] is True
+    assert body["company_name"] == seeded_company["name"]

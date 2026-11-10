@@ -396,13 +396,16 @@ def import_company(
             except DomainError as exc:
                 warnings.append(f"跳过工作区「{item.get('name')}」：{exc.message}")
                 continue
+            # 值域加固：mode/status 不合法时回退默认（防篡改包注入脏数据）
+            ws_mode = item.get("mode") if item.get("mode") in ("read_only", "read_write") else "read_write"
+            ws_status = item.get("status") if item.get("status") in ("active", "archived") else "active"
             new_ws_id = new_id()
             workspace_map[item["id"]] = new_ws_id
             session.add(_Workspace(
                 id=new_ws_id, owner_id=owner_id, company_id=new_company.id,
                 name=item.get("name", "工作区"), slug=item.get("slug") or new_ws_id,
-                root_path=str(resolved), mode=item.get("mode", "read_write"),
-                status=item.get("status", "active"), description=item.get("description", ""),
+                root_path=str(resolved), mode=ws_mode,
+                status=ws_status, description=item.get("description", ""),
                 created_by="import",
             ))
         session.flush()
@@ -423,24 +426,32 @@ def import_company(
         # 记忆导入：仅 active；作用域映射（employee → 新员工 id；project/company → 新公司）
         from hashlib import sha256 as _sha256
 
+        from packages.memory.service import _scrub  # 防御纵深：包内容再脱敏一次
+
+        memory_count = 0
         for item in memories:
-            if item.get("scope") == "employee" and item.get("employee_id") not in employee_map:
+            mem_scope = item.get("scope") if item.get("scope") in ("employee", "project", "company") else "employee"
+            if mem_scope == "employee" and item.get("employee_id") not in employee_map:
                 warnings.append(f"跳过记忆「{item.get('title')}」：原员工不在本次导入中")
                 continue
-            content = str(item.get("content") or "")
+            content = _scrub(str(item.get("content") or ""))
             if not content.strip():
                 continue
+            mem_kind = item.get("kind")
+            if mem_kind not in ("fact", "decision", "artifact", "summary", "note"):
+                mem_kind = "note"
             new_mem_id = new_id()
             session.add(_Memory(
                 id=new_mem_id, owner_id=owner_id, company_id=new_company.id,
-                scope=item.get("scope", "employee"),
-                employee_id=employee_map.get(item.get("employee_id")) if item.get("scope") == "employee" else None,
-                project_task_id=None, kind=item.get("kind", "note"),
-                title=str(item.get("title") or "")[:200], content=content,
+                scope=mem_scope,
+                employee_id=employee_map.get(item.get("employee_id")) if mem_scope == "employee" else None,
+                project_task_id=None, kind=mem_kind,
+                title=_scrub(str(item.get("title") or ""))[:200], content=content,
                 content_hash=_sha256(content.strip().encode("utf-8")).hexdigest(),
                 tags=item.get("tags") or [], status="active",
                 created_by="import", created_by_type="user",
             ))
+            memory_count += 1
         session.flush()
         # FTS 同步（表存在才生效；FTS5 不可用则检索降级 LIKE，不影响导入）
         try:
@@ -497,7 +508,7 @@ def import_company(
                     "model_connections": len(connection_map), "employees": len(employee_map),
                     "prompts": prompt_count,
                     "workspaces": len(workspace_map), "workspace_grants": len(workspace_grants),
-                    "memories": len(memories),
+                    "memories": memory_count,
                 },
                 "warnings": warnings,
             },
@@ -523,7 +534,7 @@ def import_company(
             "model_connections": len(connection_map), "employees": len(employee_map),
             "prompts": prompt_count,
             "workspaces": len(workspace_map), "workspace_grants": len(workspace_grants),
-            "memories": len(memories),
+            "memories": memory_count,
         },
         "warnings": warnings,
     }

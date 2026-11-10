@@ -412,10 +412,16 @@ async def run_checks(cdp: CDP, ctx: dict) -> None:
     await cdp.wait_text("执行计划")
     await cdp.click("执行")
     await cdp.wait_text("已完成", timeout=40)
-    multi_text = await cdp.text()
-    check("B7 多 Agent 浏览器执行与交接",
-          "子任务" in multi_text and "agent.handoff" in multi_text,
-          multi_text[:200])
+    # 时间线事件由前端轮询拉取，wait_text 成功后可能尚未刷新——轮询重试消除竞态
+    multi_ok = False
+    multi_text = ""
+    for _ in range(20):
+        multi_text = await cdp.text()
+        multi_ok = "子任务" in multi_text and "agent.handoff" in multi_text
+        if multi_ok:
+            break
+        await asyncio.sleep(0.5)
+    check("B7 多 Agent 浏览器执行与交接", multi_ok, multi_text[:200])
     await cdp.screenshot("06_multi_agent")
 
     # 6. 暂停 / 恢复（慢步骤，留出暂停窗口）

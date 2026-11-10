@@ -145,6 +145,18 @@ export default function TaskDetailPage() {
         <Link to="/tasks" className="text-sm text-slate-400 hover:text-slate-200">← 任务中心</Link>
         <h1 className="text-lg font-semibold">{data.title}</h1>
         <StateBadge state={data.state} />
+        <span className={`rounded px-2 py-0.5 text-xs ${
+          data.execution_mode === 'real'
+            ? 'bg-purple-900 text-purple-200'
+            : 'bg-slate-800 text-slate-400'
+        }`}>
+          {data.execution_mode === 'real' ? '真实模型' : data.execution_mode === 'mock' ? 'Mock' : '自动（跟随后端配置）'}
+        </span>
+        {data.budget_usd != null && (
+          <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-400">
+            预算 ${data.budget_usd.toFixed(2)}
+          </span>
+        )}
         <span className="text-xs text-slate-500">
           {data.priority} · 风险 {data.risk_level} · 模式 {data.execution_mode}
         </span>

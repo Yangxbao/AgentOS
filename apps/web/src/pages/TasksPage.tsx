@@ -78,6 +78,8 @@ export default function TasksPage() {
   const [risk, setRisk] = useState('low')
   const [dueAt, setDueAt] = useState('')
   const [approval, setApproval] = useState(false)
+  const [approvalStage, setApprovalStage] = useState('before_run')
+  const [reviewer, setReviewer] = useState('')
   const [mode, setMode] = useState('auto')
   const [instruction, setInstruction] = useState('')
   const [budget, setBudget] = useState('')
@@ -99,6 +101,8 @@ export default function TasksPage() {
       risk_level: risk,
       due_at: dueAt ? new Date(dueAt).toISOString() : null,
       approval_required: approval,
+      approval_stage: approvalStage,
+      reviewer_employee_id: reviewer || null,
       execution_mode: mode,
       instruction: instruction.trim(),
       budget_usd: budget ? Number(budget) : null,
@@ -109,6 +113,8 @@ export default function TasksPage() {
       setInstruction('')
       setBudget('')
       setApproval(false)
+      setApprovalStage('before_run')
+      setReviewer('')
       setOpen(false)
       setMessage(`任务「${task.title}」已创建`)
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
@@ -217,8 +223,32 @@ export default function TasksPage() {
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <input type="checkbox" checked={approval} onChange={(event) => setApproval(event.target.checked)} />
-            执行前需要人工审批
+            需要人工审批
           </label>
+          {approval && (
+            <>
+              <select className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                      value={approvalStage} onChange={(event) => setApprovalStage(event.target.value)}>
+                <option value="before_run">执行前审批</option>
+                <option value="after_run">交付前审批</option>
+              </select>
+              <select className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                      value={reviewer} onChange={(event) => setReviewer(event.target.value)}>
+                <option value="">审核人：本地用户（默认）</option>
+                {activeEmployees
+                  .filter((item) => item.positions.some((p) => p.name) && item.id !== assignee)
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                      {item.positions.some((p) => p.name) ? '' : ''}
+                    </option>
+                  ))}
+              </select>
+              <span className="text-xs text-slate-500">
+                审核人需具备审查资格（can_review），且不能是执行人；本地用户始终可审批。
+              </span>
+            </>
+          )}
           <div className="md:col-span-2">
             <button
               className="rounded bg-emerald-600 px-4 py-2 text-sm text-white disabled:opacity-50"
