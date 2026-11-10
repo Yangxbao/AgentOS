@@ -58,10 +58,11 @@ PROVIDERS: dict[str, ProviderInfo] = {
         id="openrouter", label="OpenRouter", api_key_env="OPENROUTER_API_KEY",
         models=[
             ModelInfo("openrouter/deepseek/deepseek-chat", "DeepSeek Chat (OpenRouter)", 64_000, cost_tier="budget"),
-            ModelInfo("openrouter/meta-llama/llama-3.3-70b-instruct:free",
-                      "Llama 3.3 70B（:free 免费档）", 128_000, cost_tier="local"),
-            ModelInfo("openrouter/deepseek/deepseek-chat:free",
-                      "DeepSeek Chat（:free 免费档）", 64_000, cost_tier="local"),
+            # :free 免费档清单随 OpenRouter 调整，以下为 2026-11-11 实测可用（支持 function calling）
+            ModelInfo("openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+                      "Nemotron 3 Ultra 550B（:free 免费档）", 1_000_000, cost_tier="local"),
+            ModelInfo("openrouter/dots-studio/dots-3-note-preview:free",
+                      "Dots-3 Note Preview（:free 免费档）", 512_000, cost_tier="local"),
         ],
     ),
     "zhipu": ProviderInfo(

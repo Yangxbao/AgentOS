@@ -262,7 +262,7 @@ cd /d E:\AgentOS
 
 ---
 
-## 附：真实模型实验（✅ 2026-11-11 两轮完成——DeepSeek 单文件读取 PASS $0.00044；智谱 GLM-4-Flash（免费）接入 + 多 Agent 协作（读→析→写文件真实落盘）费用 0，详见 docs/acceptance/2026-11-11_真实实验报告.md。重要教训：真实模型实验指令必须用自然语言，Mock marker 语法对真实模型无效）
+## 附：真实模型实验（✅ 2026-11-11 三轮完成——① DeepSeek 单文件读取 PASS $0.00044；② 智谱 GLM-4-Flash（免费）多 Agent 协作；③ OpenRouter Nemotron 550B（:free）三员工协作+报告落盘 PASS 费用 0。免费模型清单会随平台调整，catalog 标注日期需定期刷新。重要教训：真实模型实验指令必须用自然语言，Mock marker 语法对真实模型无效。详见 docs/acceptance/2026-11-11_真实实验报告.md 与 2026-11-11_OpenRouter实验报告.md）
 
 > 以下为当时的实验步骤，保留供复现与扩展实验（多员工协作/审批/记忆/预算熔断）参考。
 
