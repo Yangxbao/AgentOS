@@ -265,3 +265,25 @@ def test_employee_pagination_and_status_filter(write_client, seeded_company, mon
     assert write_client.get(
         f"/api/v1/companies/{company_id}/employees?page_size=201"
     ).status_code == 422
+
+
+def test_employee_positions_expose_can_review(write_client, seeded_company, seeded_connection):
+    """前端审核人过滤依赖 employee.positions[].can_review（后端仍硬校验资格）。"""
+    company_id = seeded_company["id"]
+    reviewer_pos = _create_position(write_client, company_id, "审核岗", can_review=True)
+    worker_pos = _create_position(write_client, company_id, "执行岗", can_review=False)
+    resp = write_client.post(
+        f"/api/v1/companies/{company_id}/employees",
+        json={
+            "name": "双岗员工", "title": "测试",
+            "primary_model_id": seeded_connection["id"],
+            "positions": [
+                {"position_id": reviewer_pos["id"], "is_primary": True},
+                {"position_id": worker_pos["id"], "is_primary": False},
+            ],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    positions = {p["position_id"]: p for p in resp.json()["positions"]}
+    assert positions[reviewer_pos["id"]]["can_review"] is True
+    assert positions[worker_pos["id"]]["can_review"] is False

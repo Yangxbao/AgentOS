@@ -26,6 +26,8 @@ export default function TaskDetailPage() {
   const [steps, setSteps] = useState<PlanStep[]>([])
   const [maxParallel, setMaxParallel] = useState(4)
   const [planDirty, setPlanDirty] = useState(false)
+  // 任务报告导出（Markdown/JSON）：hook 必须在早退 return 之前声明
+  const [exporting, setExporting] = useState(false)
 
   const task = useQuery({
     queryKey: ['task', id],
@@ -139,6 +141,28 @@ export default function TaskDetailPage() {
   const employees = Object.values(data.employees)
   const stepOptions = data.plan?.steps ?? []
 
+  // 任务报告导出：Markdown 供人工审阅归档，JSON 供系统间流转（后端统一聚合，口径与详情页一致）
+  const exportReport = async (format: 'markdown' | 'json') => {
+    setExporting(true)
+    try {
+      const { text, contentType } = await tasksApi.exportTask(id, format)
+      const blob = new Blob([text], {
+        type: contentType || (format === 'markdown' ? 'text/markdown;charset=utf-8' : 'application/json;charset=utf-8'),
+      })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `task-report-${id.slice(0, 8)}.${format === 'markdown' ? 'md' : 'json'}`
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setMessage(format === 'markdown' ? '已导出 Markdown 报告' : '已导出 JSON 数据')
+    } catch (error) {
+      setMessage(errorText(error))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="space-y-5 p-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -172,6 +196,10 @@ export default function TaskDetailPage() {
           <button className="rounded border border-red-800 px-3 py-1.5 text-red-300 disabled:opacity-40"
                   disabled={['succeeded', 'cancelled', 'skipped', 'review_passed'].includes(data.state)}
                   onClick={() => cancel.mutate()}>取消</button>
+          <button className="rounded border border-emerald-800 px-3 py-1.5 text-emerald-300 disabled:opacity-40"
+                  disabled={exporting} onClick={() => exportReport('markdown')}>导出报告</button>
+          <button className="rounded border border-slate-600 px-3 py-1.5 text-slate-300 disabled:opacity-40"
+                  disabled={exporting} onClick={() => exportReport('json')}>导出 JSON</button>
         </div>
       </div>
 

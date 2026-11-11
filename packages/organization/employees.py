@@ -129,6 +129,8 @@ def serialize_employee(session: Session, employee: Employee) -> dict:
             "name": position.name if position else "",
             "is_primary": row.is_primary,
             "department_id": row.department_id,
+            # 岗位审查资格透传给前端：派工选审核人时据此过滤（后端仍硬校验）
+            "can_review": bool(position.can_review) if position else False,
         })
     primary = session.get(ModelConnection, employee.primary_model_id)
     fallback = session.get(ModelConnection, employee.fallback_model_id) if employee.fallback_model_id else None

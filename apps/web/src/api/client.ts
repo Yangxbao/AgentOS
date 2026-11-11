@@ -67,6 +67,7 @@ async function request<T>(method: string, path: string, options: RequestOptions 
 export const api = {
   baseUrl: API_BASE,
   get: <T>(path: string, options?: Omit<RequestOptions, 'body'>) => request<T>('GET', path, options),
+  getRaw: (path: string) => requestRaw(path),
   post: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'body'>) =>
     request<T>('POST', path, { ...options, body }),
   put: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'body'>) =>
@@ -74,4 +75,27 @@ export const api = {
   patch: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'body'>) =>
     request<T>('PATCH', path, { ...options, body }),
   delete: <T>(path: string, options?: Omit<RequestOptions, 'body'>) => request<T>('DELETE', path, options),
+}
+
+/** 下载非 JSON 响应（如任务 Markdown 报告）：失败仍抛 ApiError，成功返回原文与类型。 */
+async function requestRaw(path: string): Promise<{ text: string; contentType: string }> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers: { 'X-AgentOS-Client': 'web' },
+    })
+  } catch (error) {
+    throw new ApiError(0, null, `无法连接后端（${API_BASE}）：${(error as Error).message}`)
+  }
+  const text = await response.text()
+  if (!response.ok) {
+    let payload: unknown = null
+    try {
+      payload = text ? JSON.parse(text) : null
+    } catch {
+      payload = null
+    }
+    throw new ApiError(response.status, payload as ApiErrorBody | null, `请求失败（HTTP ${response.status}）`)
+  }
+  return { text, contentType: response.headers.get('content-type') ?? '' }
 }

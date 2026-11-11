@@ -31,6 +31,8 @@ export interface EmployeePosition {
   name: string
   is_primary: boolean
   department_id: string | null
+  /** 岗位是否具备审查资格（派工审核人过滤用；后端仍硬校验） */
+  can_review?: boolean
 }
 
 export interface Employee {

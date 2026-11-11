@@ -564,6 +564,12 @@ async def run_checks(cdp: CDP, ctx: dict) -> None:
 
     await cdp.goto(f"{WEB}/settings/tools")
     await cdp.wait_text("工具策略")
+    # 路由懒加载后"标题先于数据"：轮询等工具目录真正渲染（同 B5.5/B7 的竞态坑）
+    await cdp.wait(
+        "document.body.innerText.includes('fs.read_file')"
+        " && document.body.innerText.includes('http.request')",
+        20, "工具目录列表渲染",
+    )
     policy_text = await cdp.text()
     check(
         "M3-5 工具策略页与工具列表",

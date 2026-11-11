@@ -280,6 +280,40 @@ def list_memories(
     return items, total
 
 
+def _cjk_2grams(text: str) -> list[str]:
+    """中文连续段 → 2-gram（FTS5 unicode61 把连续中文当一整块 token，子串查询命不中）。"""
+    grams: list[str] = []
+    for run in re.findall(r"[\u3400-\u4dbf\u4e00-\u9fff]{2,}", text):
+        if len(run) == 2:
+            grams.append(run)
+        else:
+            grams.extend(run[i:i + 2] for i in range(len(run) - 1))
+    return grams
+
+
+def _expand_query_tokens(query: str, limit: int = 24) -> list[str]:
+    """查询端分词增强：空白分词 + 中文段 2-gram（用于 LIKE 召回与相关性打分）。"""
+    tokens = [token for token in (query or "").split() if token]
+    grams: list[str] = []
+    for token in tokens:
+        for gram in _cjk_2grams(token):
+            if gram not in grams:
+                grams.append(gram)
+    return (tokens + grams)[:limit]
+
+
+def _memory_relevance(item: MemoryItem, base_tokens: list[str], grams: list[str]) -> float:
+    """轻量相关性打分：原词命中权重 2（大小写不敏感），中文 2-gram 命中率权重 1.5。"""
+    haystack = ((item.title or "") + "\n" + (item.content or "")).lower()
+    score = 0.0
+    for token in base_tokens:
+        if token.lower() in haystack:
+            score += 2.0
+    if grams:
+        score += 1.5 * sum(1 for gram in grams if gram in haystack) / len(grams)
+    return score
+
+
 def search_memories(
     session: Session,
     owner_id: str,
@@ -296,17 +330,25 @@ def search_memories(
     - employee 作用域：只返回 viewer 自己的（跨员工永不读私有记忆）；
     - project/company：同公司即可见。
     viewer 为空（本地人工/API）时可见 owner 范围内全部。
+
+    中文增强（查询端，不动表结构）：FTS5 unicode61 把连续中文当一个 token，
+    对子串查询基本失明；这里把中文段拆 2-gram 用于 LIKE 召回，并对全部候选
+    统一按相关性打分排序（原词 > 2-gram 命中率）。
     """
     query = (query or "").strip()
     if not query:
         return []
     top_k = max(1, min(int(top_k or TOP_K_DEFAULT), 20))
 
+    base_tokens = [token for token in query.split() if token][:8]
+    like_tokens = _expand_query_tokens(query)
+    grams = [token for token in like_tokens[len(base_tokens):]]  # 扩展出来的 2-gram
+
     candidates: list[MemoryItem]
     fts = memory_fts_available(session.get_bind())
     if fts:
         match_expr = " OR ".join(
-            '"' + token.replace('"', "") + '"' for token in query.split()[:8] if token
+            '"' + token.replace('"', "") + '"' for token in base_tokens if token
         )
         if match_expr.strip('"'):
             rows = session.execute(
@@ -335,7 +377,7 @@ def search_memories(
 
             like_clauses = [
                 MemoryItem.content.like(f"%{token}%") | MemoryItem.title.like(f"%{token}%")
-                for token in query.split()[:8] if token
+                for token in like_tokens if token
             ]
             if like_clauses:
                 extra = session.execute(
@@ -347,10 +389,10 @@ def search_memories(
                 seen_ids = {item.id for item in candidates}
                 candidates.extend([item for item in extra if item.id not in seen_ids])
     else:
-        # FTS5 不可用：LIKE 降级（任一 token 命中即可）
+        # FTS5 不可用：LIKE 降级（任一 token / 中文 2-gram 命中即可）
         like_clauses = [
             MemoryItem.content.like(f"%{token}%") | MemoryItem.title.like(f"%{token}%")
-            for token in query.split()[:8] if token
+            for token in like_tokens if token
         ]
         if not like_clauses:
             return []
@@ -361,9 +403,16 @@ def search_memories(
         )
         candidates = list(session.execute(stmt).scalars().all())
 
+    # 统一相关性排序：原词命中优先，中文 2-gram 命中率次之；同分保持原顺序（FTS rank 在前）
+    scored = [
+        (-_memory_relevance(item, base_tokens, grams), index, item)
+        for index, item in enumerate(candidates)
+    ]
+    scored.sort(key=lambda triple: (triple[0], triple[1]))
+
     results: list[dict] = []
     seen: set[str] = set()
-    for item in candidates:
+    for _, _, item in scored:
         if item.id in seen:
             continue
         if scope and item.scope != scope:

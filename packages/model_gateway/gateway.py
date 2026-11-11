@@ -100,19 +100,33 @@ async def chat(
         # `_skip_mcp_handler` 是 litellm 官方 kwargs 逃生门（main.py: kwargs.pop("_skip_mcp_handler")）；
         # 我们不使用 MCP 网关，全部工具走 OpenAI function calling。litellm 升级修复后可移除本参数。
         extra["_skip_mcp_handler"] = True
-    try:
-        response = await litellm.acompletion(
+
+    async def _call(max_tokens_value: int):
+        return await litellm.acompletion(
             model=model,
             messages=messages,
             fallbacks=fallbacks or [],
             timeout=timeout,
             num_retries=num_retries,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_tokens=max_tokens_value,
             api_key=api_key,
             base_url=base_url,
             **extra,
         )
+
+    try:
+        try:
+            response = await _call(max_tokens)
+        except Exception as exc:  # noqa: BLE001
+            # 供应商输出上限自愈：请求的 max_tokens 超过模型上限（如 GLM-4V-Flash 上限
+            # 1024 而全局默认 4000）时，供应商返回带 "max_tokens" 的 BadRequest。
+            # 降到 1024（常见最低通用上限）重试一次；仍失败则照常包装上抛。
+            lowered = str(exc).lower()
+            if "max_tokens" in lowered or "max tokens" in lowered or "max_completion_tokens" in lowered:
+                response = await _call(min(max_tokens, 1024))
+            else:
+                raise
     except Exception as exc:  # litellm 异常类型众多，统一包装；不记录请求体
         raise GatewayError(f"{type(exc).__name__}: {str(exc)[:300]}") from exc
 

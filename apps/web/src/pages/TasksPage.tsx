@@ -236,16 +236,15 @@ export default function TasksPage() {
                       value={reviewer} onChange={(event) => setReviewer(event.target.value)}>
                 <option value="">审核人：本地用户（默认）</option>
                 {activeEmployees
-                  .filter((item) => item.positions.some((p) => p.name) && item.id !== assignee)
+                  .filter((item) => item.positions.some((p) => p.can_review) && item.id !== assignee)
                   .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                      {item.positions.some((p) => p.name) ? '' : ''}
-                    </option>
+                    <option key={item.id} value={item.id}>{item.name}（具备审查资格）</option>
                   ))}
               </select>
               <span className="text-xs text-slate-500">
-                审核人需具备审查资格（can_review），且不能是执行人；本地用户始终可审批。
+                {activeEmployees.some((item) => item.positions.some((p) => p.can_review) && item.id !== assignee)
+                  ? '仅列出岗位具备审查资格（can_review）的员工；本地用户始终可审批。'
+                  : '当前没有具备审查资格的员工——可在「组织设置」给岗位勾选审查资格，或交给本地用户审批。'}
               </span>
             </>
           )}

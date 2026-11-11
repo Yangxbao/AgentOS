@@ -245,13 +245,15 @@ async def test_write_too_large(tools_on, session, seeded_team, tool_employee, se
 
 
 async def test_write_missing_parent_dir(tools_on, session, seeded_team, tool_employee,
-                                        seeded_workspace):
+                                        seeded_workspace, workspace_root):
+    """父目录不存在 → 自动创建（2026-11-12 行为变更：模型写嵌套路径不再被卡死）。"""
     ctx = _ctx(session, seeded_team["company"]["id"], tool_employee["id"])
     outcome = await invoke_tool(
         ctx, "fs.write_file",
         {"workspace_id": seeded_workspace["id"], "path": "no/such/dir/a.txt", "content": "x"},
     )
-    assert not outcome.ok and outcome.error_code == "TOOL_PATH_NOT_FOUND"
+    assert outcome.ok, outcome.error_message
+    assert (workspace_root / "no" / "such" / "dir" / "a.txt").read_text(encoding="utf-8") == "x"
 
 
 async def test_write_in_read_only_workspace(tools_on, session, seeded_team, tool_employee,
@@ -351,3 +353,31 @@ async def test_list_dir_marks_symlink_without_following(tools_on, session, seede
 def test_default_policy_does_not_allow_delete_or_shell():
     assert "fs.delete_file" not in DEFAULT_TOOL_POLICY["allowed_tools"]
     assert "shell.run" not in DEFAULT_TOOL_POLICY["allowed_tools"]
+
+
+
+
+async def test_write_file_auto_creates_parent_dirs(tools_on, session, seeded_team,
+                                                   tool_employee, seeded_workspace,
+                                                   workspace_root):
+    """写嵌套路径自动创建父目录（真实实验暴露：模型写 game/spec.md 曾被目录卡死）。"""
+    ctx = _ctx(session, seeded_team["company"]["id"], tool_employee["id"])
+    outcome = await invoke_tool(
+        ctx, "fs.write_file",
+        {
+            "workspace_id": seeded_workspace["id"], "path": "game/sub/spec.md",
+            "content": "# spec", "mode": "create",
+        },
+    )
+    assert outcome.ok, outcome.error_message
+    assert (workspace_root / "game" / "sub" / "spec.md").read_text(encoding="utf-8") == "# spec"
+    # 目录自动创建不会越出工作区：逃逸路径仍被 safe_resolve 拒绝
+    outcome2 = await invoke_tool(
+        ctx, "fs.write_file",
+        {
+            "workspace_id": seeded_workspace["id"], "path": "../evil/x.txt",
+            "content": "no", "mode": "create",
+        },
+    )
+    assert not outcome2.ok
+    assert not (workspace_root.parent / "evil").exists()

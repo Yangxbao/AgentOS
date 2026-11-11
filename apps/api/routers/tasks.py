@@ -1,7 +1,7 @@
 """M2-A：任务中心接口（M2-01..14）。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from packages.tasks import service
 from packages.tasks import state as task_state
 from packages.tasks.approvals import serialize_approval
 from packages.tasks.decompose import decompose_task
+from packages.tasks.export import build_export, to_markdown
 
 router = APIRouter(tags=["tasks"])
 
@@ -190,6 +191,28 @@ def replan_endpoint(
     )
     _kick(request)
     return result
+
+
+@router.get("/tasks/{task_id}/export")
+def export_task_endpoint(
+    task_id: str,
+    request: Request,
+    format: str = "json",
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor),
+):
+    """任务全生命周期导出（JSON / Markdown），供人工审阅与归档；导出动作写审计。"""
+    fmt = (format or "json").lower()
+    if fmt not in ("json", "markdown"):
+        raise DomainError("VALIDATION_ERROR", "format 只支持 json / markdown", 422)
+    data = build_export(db, actor.owner_id, task_id)
+    audit_action(
+        db, actor, request, action="task.export", target_type="task", target_id=task_id,
+        detail={"format": fmt},
+    )
+    if fmt == "markdown":
+        return Response(content=to_markdown(data), media_type="text/markdown; charset=utf-8")
+    return data
 
 
 @router.get("/tasks/{task_id}/plan-revisions")

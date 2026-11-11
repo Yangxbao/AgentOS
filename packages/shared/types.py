@@ -74,6 +74,8 @@ class AgentTask:
     input: str = ""
     context: dict[str, Any] = field(default_factory=dict)
     task_id: str = field(default_factory=new_id)
+    # 视觉链路：随首条 user 消息发给模型的图片 data URI（仅视觉模型可用；空=纯文本）
+    images: list[str] = field(default_factory=list)
 
 
 @dataclass

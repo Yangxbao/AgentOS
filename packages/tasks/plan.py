@@ -99,6 +99,20 @@ def normalize_plan(session: Session, owner_id: str, task) -> dict:
                 422,
                 {"step_id": step_id, "denied": denied},
             )
+        # 视觉/超时扩展字段：透传给执行器（images → 步骤级图片注入；timeout_s → 步骤级超时）
+        images = item.get("images") or []
+        if not isinstance(images, list) or any(not isinstance(i, dict) for i in images):
+            raise DomainError(
+                "TASK_PLAN_INVALID",
+                f"步骤 {step_id} 的 images 必须是对象数组（每项含 workspace_id/path）",
+                422,
+            )
+        timeout_s = item.get("timeout_s")
+        if timeout_s is not None:
+            try:
+                timeout_s = max(0.05, min(float(timeout_s), 3600.0))
+            except (TypeError, ValueError):
+                timeout_s = None
         normalized.append({
             "id": step_id,
             "title": str(item.get("title") or "").strip(),
@@ -110,6 +124,8 @@ def normalize_plan(session: Session, owner_id: str, task) -> dict:
             "deliverable": str(item.get("deliverable") or "").strip(),
             "depends_on": list(dict.fromkeys(depends)),
             "tools": tools,
+            "images": images,
+            "timeout_s": timeout_s,
         })
 
     known = {step["id"] for step in normalized}

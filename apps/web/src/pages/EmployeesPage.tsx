@@ -85,6 +85,25 @@ export default function EmployeesPage() {
     onError: (error) => setMessage(errorText(error)),
   })
 
+  const deleteEmployee = useMutation({
+    mutationFn: (id: string) => peopleApi.deleteEmployee(id),
+    onSuccess: () => {
+      setMessage('员工已删除（软删除：任务与审计历史保留）')
+      queryClient.invalidateQueries({ queryKey: ['employees'] })
+      queryClient.invalidateQueries({ queryKey: ['org-tree'] })
+    },
+    onError: (error) => setMessage(errorText(error)),
+  })
+
+  const confirmDelete = (employee: { id: string; name: string; status: string }) => {
+    const hint = employee.status === 'active'
+      ? `确定删除员工「${employee.name}」？建议先停用再删除。`
+      : `确定删除员工「${employee.name}」？`
+    if (window.confirm(`${hint}\n这是软删除：历史任务与审计记录保留，但员工不再可派工。`)) {
+      deleteEmployee.mutate(employee.id)
+    }
+  }
+
   if (!activeCompanyId) {
     return <p className="p-6 text-slate-400">请先在组织设置中创建公司。</p>
   }
@@ -174,14 +193,23 @@ export default function EmployeesPage() {
                 </Link>
               </div>
             </div>
-            <button
-              className="text-xs text-slate-400 hover:text-slate-200"
-              onClick={() =>
-                toggleStatus.mutate({ id: employee.id, action: employee.status === 'active' ? 'disable' : 'enable' })
-              }
-            >
-              {employee.status === 'active' ? '停用' : '启用'}
-            </button>
+            <div className="flex flex-col items-end gap-1">
+              <button
+                className="text-xs text-slate-400 hover:text-slate-200"
+                onClick={() =>
+                  toggleStatus.mutate({ id: employee.id, action: employee.status === 'active' ? 'disable' : 'enable' })
+                }
+              >
+                {employee.status === 'active' ? '停用' : '启用'}
+              </button>
+              <button
+                className="text-xs text-rose-500 hover:text-rose-400 disabled:opacity-40"
+                disabled={deleteEmployee.isPending}
+                onClick={() => confirmDelete(employee)}
+              >
+                删除
+              </button>
+            </div>
           </div>
         ))}
         {employees.data?.items.length === 0 && (

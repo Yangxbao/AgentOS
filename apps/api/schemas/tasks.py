@@ -53,6 +53,11 @@ class PlanStepInput(BaseModel):
     deliverable: str = ""
     depends_on: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
+    # 视觉链路（M4 前置）：本步骤给执行员工看的图片清单（仅视觉模型步骤声明；
+    # 不声明则回退任务级 context.images——单步任务场景）
+    images: list[dict[str, Any]] = Field(default_factory=list)
+    # 步骤级超时（秒）：长代码生成步骤（如写完整游戏）默认 300s 不够用
+    timeout_s: float | None = Field(default=None, ge=0.05, le=3600)
 
 
 class TaskPlanInput(BaseModel):

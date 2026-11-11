@@ -1,23 +1,30 @@
 import { useQuery } from '@tanstack/react-query'
+import { lazy, Suspense } from 'react'
 import { Navigate, NavLink, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
 import { api } from './api/client'
 import type { HealthResponse } from './api/types'
-import OrganizationSettings from './pages/OrganizationSettings'
-import EmployeeDetailPage from './pages/EmployeeDetailPage'
-import EmployeesPage from './pages/EmployeesPage'
-import AssignmentPage from './pages/AssignmentPage'
-import AuditPage from './pages/AuditPage'
-import ImportExportPage from './pages/ImportExportPage'
-import ModelConnectionsPage from './pages/ModelConnectionsPage'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import ApprovalsPage from './pages/ApprovalsPage'
-import MemoryPage from './pages/MemoryPage'
-import MonitorPage from './pages/MonitorPage'
-import OrgPage from './pages/OrgPage'
-import TaskDetailPage from './pages/TaskDetailPage'
-import TasksPage from './pages/TasksPage'
-import ToolPolicyPage from './pages/ToolPolicyPage'
-import WorkspacesPage from './pages/WorkspacesPage'
+
+// 路由级代码分割：首屏只加载当前页面（此前 15 个页面打进一个 527kB bundle）
+const OrganizationSettings = lazy(() => import('./pages/OrganizationSettings'))
+const EmployeeDetailPage = lazy(() => import('./pages/EmployeeDetailPage'))
+const EmployeesPage = lazy(() => import('./pages/EmployeesPage'))
+const AssignmentPage = lazy(() => import('./pages/AssignmentPage'))
+const AuditPage = lazy(() => import('./pages/AuditPage'))
+const ImportExportPage = lazy(() => import('./pages/ImportExportPage'))
+const ModelConnectionsPage = lazy(() => import('./pages/ModelConnectionsPage'))
+const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'))
+const MemoryPage = lazy(() => import('./pages/MemoryPage'))
+const MonitorPage = lazy(() => import('./pages/MonitorPage'))
+const OrgPage = lazy(() => import('./pages/OrgPage'))
+const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage'))
+const TasksPage = lazy(() => import('./pages/TasksPage'))
+const ToolPolicyPage = lazy(() => import('./pages/ToolPolicyPage'))
+const WorkspacesPage = lazy(() => import('./pages/WorkspacesPage'))
+
+function PageFallback() {
+  return <p className="p-6 text-slate-500">页面加载中…</p>
+}
 
 function HealthBadge() {
   const health = useQuery({
@@ -80,25 +87,27 @@ function Shell() {
 
       <main className="min-h-0 flex-1 overflow-auto">
         <ErrorBoundary>
-        <Routes>
-          <Route path="/" element={<Navigate to="/tasks" replace />} />
-          <Route path="/tasks" element={<TasksPage />} />
-          <Route path="/tasks/:id" element={<TaskDetailPage />} />
-          <Route path="/monitor" element={<MonitorPage />} />
-          <Route path="/approvals" element={<ApprovalsPage />} />
-          <Route path="/org" element={<OrgPage />} />
-          <Route path="/employees" element={<EmployeesPage />} />
-          <Route path="/employees/:id" element={<EmployeeDetailPage />} />
-          <Route path="/settings/workspaces" element={<WorkspacesPage />} />
-          <Route path="/settings/tools" element={<ToolPolicyPage />} />
-          <Route path="/settings/memory" element={<MemoryPage />} />
-          <Route path="/settings/models" element={<ModelConnectionsPage />} />
-          <Route path="/assignments" element={<AssignmentPage />} />
-          <Route path="/settings/import-export" element={<ImportExportPage />} />
-          <Route path="/settings/audit" element={<AuditPage />} />
-          <Route path="/settings/organization" element={<OrganizationSettings />} />
-          <Route path="*" element={<p className="p-6 text-slate-400">页面不存在</p>} />
-        </Routes>
+          <Suspense fallback={<PageFallback />}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/tasks" replace />} />
+              <Route path="/tasks" element={<TasksPage />} />
+              <Route path="/tasks/:id" element={<TaskDetailPage />} />
+              <Route path="/monitor" element={<MonitorPage />} />
+              <Route path="/approvals" element={<ApprovalsPage />} />
+              <Route path="/org" element={<OrgPage />} />
+              <Route path="/employees" element={<EmployeesPage />} />
+              <Route path="/employees/:id" element={<EmployeeDetailPage />} />
+              <Route path="/settings/workspaces" element={<WorkspacesPage />} />
+              <Route path="/settings/tools" element={<ToolPolicyPage />} />
+              <Route path="/settings/memory" element={<MemoryPage />} />
+              <Route path="/settings/models" element={<ModelConnectionsPage />} />
+              <Route path="/assignments" element={<AssignmentPage />} />
+              <Route path="/settings/import-export" element={<ImportExportPage />} />
+              <Route path="/settings/audit" element={<AuditPage />} />
+              <Route path="/settings/organization" element={<OrganizationSettings />} />
+              <Route path="*" element={<p className="p-6 text-slate-400">页面不存在</p>} />
+            </Routes>
+          </Suspense>
         </ErrorBoundary>
       </main>
     </div>

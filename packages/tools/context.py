@@ -30,6 +30,9 @@ class ToolContext:
     tool_call_id: str | None = None
     # 已存在的幂等记录（恢复/重试时复用）
     reuse_output: dict | None = None
+    # 视觉链路：fs.read_image 命中的图片暂存于此，由 tool_loop 在下一轮模型请求前
+    # 转成多模态 user 消息（OpenAI 兼容：图片必须出现在 user 轮，不能进 tool 轮）
+    pending_images: list[dict] = field(default_factory=list)
 
 
 @dataclass

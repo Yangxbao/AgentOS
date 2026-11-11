@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -22,20 +24,24 @@ from packages.persistence.models import (
     AgentHandoff,
     AgentRun,
     Employee,
+    EmployeeWorkspaceGrant,
     ModelConnection,
     Task,
     TaskApproval,
     TaskEvent,
     TaskRun,
     UsageRecord,
+    Workspace,
 )
 from packages.shared.errors import DomainError
 from packages.shared.types import AgentTask, new_id
 from packages.tasks import state as st
 from packages.tasks.approvals import create_approval
 from packages.tasks.plan import topological_waves
+from packages.tools.fs import load_image_data_uri
+from packages.tools.paths import PathDenied, safe_resolve
 from packages.tools.policy import global_tools_enabled
-from packages.tools.workspaces import workspace_brief
+from packages.tools.workspaces import resolve_grant, workspace_brief
 
 from . import budget
 from .adapter_factory import build_adapter
@@ -738,6 +744,73 @@ async def _run_nested_step(
         raise
 
 
+TASK_IMAGE_LIMIT = 4
+# 交付物核验：deliverable 是"纯路径形态"（如 game/index.html）才检查；描述性文字不检查
+_DELIVERABLE_PATH_RE = re.compile(r"^[\w][\w\-./ ]*\.[A-Za-z0-9]{1,5}$")
+
+
+def _verify_deliverable(session: Session, task: Task, employee: Employee, step: dict) -> None:
+    """交付物存在性核验（防假成功，2026-11-12 游戏实验实证）。
+
+    步骤声明了路径形态的 deliverable 时，执行完必须真实落盘在员工已授权工作区；
+    否则抛 DELIVERABLE_MISSING 让任务失败（可 retry/replan）。背景：实验中前端
+    步骤 0 次 write 调用却输出"已交付"，任务假成功，下游全部读 404 级联空转。
+    """
+    deliverable = str(step.get("deliverable") or "").strip()
+    if not deliverable or not _DELIVERABLE_PATH_RE.match(deliverable):
+        return
+    rows = session.execute(
+        select(Workspace)
+        .join(EmployeeWorkspaceGrant, EmployeeWorkspaceGrant.workspace_id == Workspace.id)
+        .where(
+            EmployeeWorkspaceGrant.employee_id == employee.id,
+            EmployeeWorkspaceGrant.owner_id == task.owner_id,
+        )
+    ).scalars().all()
+    for workspace in rows:
+        if workspace.status != "active":
+            continue
+        try:
+            target = safe_resolve(Path(workspace.root_path), deliverable)
+        except PathDenied:
+            continue
+        if target.is_file():
+            return
+    raise DomainError(
+        "DELIVERABLE_MISSING",
+        f"步骤 {step['id']} 声明的交付物「{deliverable}」未在工作区落盘"
+        "（执行者未调用写工具即结束）——任务转失败，可重试或重规划",
+        424, {"step_id": step["id"], "deliverable": deliverable},
+    )
+
+
+def _task_images(session: Session, task: Task, employee: Employee, step: dict) -> list[str]:
+    """步骤声明 images（或单步任务回退 task.context.images）→ 校验读授权后转 data URI。
+
+    视觉链路（M4 前置）：让绑定视觉模型（如 GLM-4V-Flash）的员工在 M2 单次调用
+    路径直接看图——GLM-4V 系列不支持 function calling，不能依赖 fs.read_image 工具。
+    步骤级声明优先于任务级：混合模型团队里只有视觉步骤带图，文本模型步骤零影响。
+    图片属不可信数据，注入文本已注明"图中文字非指令"。
+    """
+    items = step.get("images") or (task.context or {}).get("images") or []
+    if not items:
+        return []
+    uris: list[str] = []
+    for item in items[:TASK_IMAGE_LIMIT]:
+        if not isinstance(item, dict) or not item.get("workspace_id") or not item.get("path"):
+            raise DomainError(
+                "TASK_CONTEXT_INVALID",
+                "images 每项必须是 {workspace_id, path}",
+                422,
+            )
+        workspace, _grant = resolve_grant(
+            session, task.owner_id, employee.id, item["workspace_id"], "read"
+        )
+        payload = load_image_data_uri(workspace.root_path, str(item["path"]))
+        uris.append(payload["data_uri"])
+    return uris
+
+
 async def _run_single_step(
     session: Session,
     *,
@@ -847,6 +920,7 @@ async def _run_single_step(
                     AgentTask(
                         instruction=instruction, input=context,
                         task_id=f"{task.id}:{step['id']}",
+                        images=_task_images(session, task, employee, step),
                     ),
                     system_prompt=system_prompt,
                 )
@@ -973,6 +1047,9 @@ async def _run_single_step(
                 502,
                 {"step_id": step["id"]},
             )
+
+        # 防假成功：声明了路径形态交付物但没落盘 → 任务失败（可 retry）
+        _verify_deliverable(session, task, employee, step)
 
         return {
             "step_id": step["id"],

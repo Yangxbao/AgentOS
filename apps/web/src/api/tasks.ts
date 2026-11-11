@@ -265,4 +265,6 @@ export const tasksApi = {
     ),
   monitor: (companyId: string) =>
     api.get<MonitorSummary>(`/api/v1/monitor/summary?company_id=${companyId}`),
+  exportTask: (taskId: string, format: 'json' | 'markdown') =>
+    api.getRaw(`/api/v1/tasks/${taskId}/export?format=${format}`),
 }

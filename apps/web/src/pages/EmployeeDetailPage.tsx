@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { orgApi } from '../api/org'
 import { peopleApi } from '../api/people'
@@ -32,9 +32,28 @@ const REASON_LABEL: Record<string, string> = {
 
 export default function EmployeeDetailPage() {
   const { id = '' } = useParams()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { toast, showToast } = useToast()
   const employee = useQuery({ queryKey: ['employee', id], queryFn: () => peopleApi.getEmployee(id) })
+
+  // 员工删除（软删除：任务与审计历史保留）
+  const deleteEmployee = useMutation({
+    mutationFn: () => peopleApi.deleteEmployee(id),
+    onSuccess: () => {
+      showToast('success', '员工已删除（软删除：历史任务与审计保留）')
+      queryClient.invalidateQueries({ queryKey: ['employees'] })
+      queryClient.invalidateQueries({ queryKey: ['org-tree'] })
+      navigate('/employees')
+    },
+    onError: (error) => showToast('error', errorText(error)),
+  })
+  const confirmDelete = () => {
+    const name = employee.data?.name ?? ''
+    if (window.confirm(`确定删除员工「${name}」？\n这是软删除：历史任务与审计记录保留，但员工不再可派工。`)) {
+      deleteEmployee.mutate()
+    }
+  }
   const companyId = employee.data?.company_id
   const connections = useQuery({
     queryKey: ['connections', companyId],
@@ -125,7 +144,12 @@ export default function EmployeeDetailPage() {
         ...(profilePositions !== null
           ? { positions: profilePositions.map((positionId) => ({
               position_id: positionId,
-              is_primary: positionId === (primaryPosition ?? data?.positions.find((p) => p.is_primary)?.position_id),
+              // 主岗：显式选择 > 已有主岗 > 仅选一个岗位时自动成为主岗（修复此前无主岗时全部静默丢失）
+              is_primary: positionId === (
+                primaryPosition
+                ?? employee.data?.positions.find((p) => p.is_primary)?.position_id
+                ?? (profilePositions.length === 1 ? profilePositions[0] : null)
+              ),
             })) }
           : {}),
       }),
@@ -250,6 +274,25 @@ export default function EmployeeDetailPage() {
     onError: (error) => showToast('error', errorText(error)),
   })
 
+  // 记忆工具一键开启：把 memory.remember / memory.search 并入员工白名单
+  const MEMORY_TOOLS = ['memory.remember', 'memory.search']
+  const memoryToolsMissing = MEMORY_TOOLS.filter(
+    (tool) => !(employee.data?.tools_allowed ?? []).includes(tool),
+  )
+  const enableMemoryTools = useMutation({
+    mutationFn: () =>
+      peopleApi.patchEmployee(id, {
+        tools_allowed: [...(employee.data?.tools_allowed ?? []), ...memoryToolsMissing],
+      }),
+    onSuccess: (updated) => {
+      showToast('success', `记忆工具已加入白名单（现 ${updated.tools_allowed.length} 项）`)
+      queryClient.invalidateQueries({ queryKey: ['employee', id] })
+      queryClient.invalidateQueries({ queryKey: ['employees'] })
+      queryClient.invalidateQueries({ queryKey: ['tool-permissions', id] })
+    },
+    onError: (error) => showToast('error', errorText(error)),
+  })
+
   // 检索预览：以该员工视角搜索（含项目/公司共享；验证记忆隔离的直连工具）
   const [previewQuery, setPreviewQuery] = useState('')
   const [previewEnabled, setPreviewEnabled] = useState(false)
@@ -278,6 +321,11 @@ export default function EmployeeDetailPage() {
         }`}>
           {data.status === 'active' ? '在职' : '停用'}
         </span>
+        <button className="ml-auto rounded border border-rose-800 px-3 py-1 text-xs text-rose-400 hover:bg-rose-950 disabled:opacity-40"
+                disabled={deleteEmployee.isPending}
+                onClick={confirmDelete}>
+          删除员工
+        </button>
       </div>
 
       <section className="grid gap-4 md:grid-cols-2">
@@ -332,7 +380,9 @@ export default function EmployeeDetailPage() {
                   )
                 })}
                 {(positions.data?.items ?? []).length === 0 && (
-                  <span className="text-slate-500">本公司还没有岗位，请到「组织设置」创建</span>
+                  <span className="text-slate-500">
+                    本公司还没有岗位，<Link className="text-sky-400 hover:underline" to="/settings/organization">去组织设置创建 →</Link>
+                  </span>
                 )}
               </div>
             </div>
@@ -349,7 +399,9 @@ export default function EmployeeDetailPage() {
                 </button>
               )}
             </div>
-            <p className="text-xs text-slate-600">岗位清单来自组织设置；新岗位请先到「组织设置」创建。</p>
+            <p className="text-xs text-slate-600">
+              岗位清单来自<Link className="text-sky-500 hover:underline" to="/settings/organization">组织设置</Link>；新岗位、审查资格（can_review）与岗位默认权限都在那里维护。
+            </p>
           </div>
         </div>
 
@@ -529,6 +581,24 @@ export default function EmployeeDetailPage() {
 
       <section className="rounded border border-slate-800 p-4">
         <h3 className="text-sm font-medium text-slate-200">员工记忆（employee 作用域，仅本人可检索）</h3>
+        {memoryToolsMissing.length > 0 && (
+          <div className="mt-2 rounded border border-amber-800 bg-amber-950/40 p-2 text-xs text-amber-200">
+            <p>
+              该员工还没有记忆工具授权（缺：{memoryToolsMissing.join('、')}）——没有它，Agent
+              在任务里无法自动记忆/检索，这是记忆中心空着的常见原因。
+            </p>
+            <div className="mt-1 flex items-center gap-2">
+              <button className="rounded bg-amber-700 px-3 py-1 text-white disabled:opacity-50"
+                      disabled={enableMemoryTools.isPending}
+                      onClick={() => enableMemoryTools.mutate()}>
+                一键加入工具白名单
+              </button>
+              <span className="text-slate-500">
+                开启后仍需公司工具策略允许 memory 类别才实际可执行（到「工具策略」页确认）。
+              </span>
+            </div>
+          </div>
+        )}
         <div className="mt-3 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <input className="w-48 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-100"

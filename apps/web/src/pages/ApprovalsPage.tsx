@@ -75,6 +75,26 @@ export default function ApprovalsPage() {
     queryClient.invalidateQueries({ queryKey: ['monitor'] })
   }
 
+  // 审批历史 CSV 导出（带 BOM，Excel 打开中文不乱码）
+  const exportCsv = () => {
+    const rows = approvals.data?.items ?? []
+    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`
+    const csv = [
+      'id,task_title,gate,status,decided_by,comment,created_at',
+      ...rows.map((a) =>
+        [a.id, a.task_title ?? '', a.gate, a.status, a.decided_by ?? '', a.comment ?? '', a.created_at ?? '']
+          .map(escape).join(','),
+      ),
+    ].join('\r\n')
+    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `approvals_${new Date().toISOString().slice(0, 10)}.csv`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-5 p-6">
       <Toast toast={toast} />
@@ -92,6 +112,13 @@ export default function ApprovalsPage() {
           <option value="all">全部</option>
         </select>
         {approvals.isFetching && <span className="text-xs text-slate-500">刷新中…</span>}
+        <button
+          className="ml-auto rounded border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+          disabled={(approvals.data?.items ?? []).length === 0}
+          onClick={exportCsv}
+        >
+          导出 CSV
+        </button>
       </div>
 
       <p className="text-xs text-slate-500">
@@ -134,7 +161,18 @@ export default function ApprovalsPage() {
             </tr>
           ))}
           {(approvals.data?.items ?? []).length === 0 && (
-            <tr><td colSpan={5} className="py-3 text-slate-500">没有符合条件的审批</td></tr>
+            <tr>
+              <td colSpan={5} className="py-3 text-slate-500">
+                <p>没有符合条件的审批。</p>
+                {statusFilter === 'pending' && (
+                  <p className="mt-2 max-w-3xl text-slate-600">
+                    审批会在这些情况出现：① 创建任务时勾选「需要人工审批」；② 步骤/工具风险高于公司策略的
+                    自动执行上限；③ 员工调用了需要审批的高风险工具。Mock 或免费模型的低风险文本任务通常
+                    不会产生审批——想体验完整审批流，可在创建任务时勾选「需要人工审批（执行前）」。
+                  </p>
+                )}
+              </td>
+            </tr>
           )}
         </tbody>
       </table>
