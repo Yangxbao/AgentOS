@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="星舟科技 — 商业航天解决方案提供商，专注卫星在轨服务、火箭测运控与航天数据应用">
+  <title>星舟科技 — 驶向深空，赋能未来</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ====== 导航栏 ====== -->
+  <nav class="navbar" role="navigation" aria-label="主导航">
+    <div class="container navbar__inner">
+      <a href="index.html" class="navbar__brand" aria-label="星舟科技首页">
+        <!-- 品牌图标：简化火箭 -->
+        <svg class="navbar__brand-icon" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M18 2 L22 14 L26 22 L18 34 L10 22 L14 14 Z" fill="#D4AF37" opacity="0.9"/>
+          <path d="M18 6 L20 14 L22 20 L18 30 L14 20 L16 14 Z" fill="#0B2545" opacity="0.6"/>
+        </svg>
+        星舟科技
+      </a>
+
+      <button class="navbar__toggle" type="button" aria-label="打开菜单" aria-expanded="false">
+        <span class="navbar__toggle-bar"></span>
+        <span class="navbar__toggle-bar"></span>
+        <span class="navbar__toggle-bar"></span>
+      </button>
+
+      <ul class="navbar__menu">
+        <li><a href="index.html" class="navbar__link">首页</a></li>
+        <li><a href="services.html" class="navbar__link">服务</a></li>
+        <li><a href="about.html" class="navbar__link">关于我们</a></li>
+        <li><a href="news.html" class="navbar__link">新闻动态</a></li>
+        <li><a href="contact.html" class="navbar__link">联系我们</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main id="main-content" role="main">
+
+  <!-- ====== Hero 区域 ====== -->
+  <header class="hero">
+    <div class="container hero__content">
+      <span class="hero__tag">商业航天解决方案</span>
+      <h1 class="hero__title">驶向深空，<br>赋能未来航天</h1>
+      <p class="hero__subtitle">
+        星舟科技为政企客户提供卫星在轨服务、火箭测运控与航天数据应用全链路解决方案，以工程化交付能力推动商业航天产业化进程。
+      </p>
+      <div class="hero__actions">
+        <a href="services.html" class="btn btn--primary btn--lg">了解服务方案</a>
+        <a href="contact.html" class="btn btn--outline btn--lg">商务合作咨询</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- ====== 三项服务卡片 ====== -->
+  <section class="services section" id="services">
+    <div class="container">
+      <div class="services__header">
+        <p class="services__label">核心业务</p>
+        <h2 class="services__title">三大业务板块，覆盖航天全周期</h2>
+        <p class="services__desc">从卫星入轨到数据落地，星舟科技提供端到端工程化保障</p>
+      </div>
+
+      <div class="services__grid">
+
+        <!-- 卡片 1：卫星在轨服务 -->
+        <article class="card">
+          <div class="card__icon">
+            <svg viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="14" cy="14" r="5" fill="none" stroke="#0B2545" stroke-width="1.5"/>
+              <ellipse cx="14" cy="14" rx="12" ry="5" fill="none" stroke="#0B2545" stroke-width="1" transform="rotate(-30 14 14)"/>
+              <ellipse cx="14" cy="14" rx="12" ry="5" fill="none" stroke="#D4AF37" stroke-width="1" transform="rotate(30 14 14)"/>
+            </svg>
+          </div>
+          <h3 class="card__title">卫星在轨服务</h3>
+          <p class="card__text">
+            面向低轨星座与高轨卫星，提供在轨状态监测、轨道机动规划、延寿管理与离轨处置方案，保障卫星全生命周期可靠运行。
+          </p>
+          <a href="services.html#satellite" class="card__link">
+            查看详情 <span class="card__link-arrow">→</span>
+          </a>
+        </article>
+
+        <!-- 卡片 2：火箭测运控 -->
+        <article class="card">
+          <div class="card__icon">
+            <svg viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M14 2 L17 10 L20 18 L14 26 L8 18 L11 10 Z" fill="none" stroke="#0B2545" stroke-width="1.5" stroke-linejoin="round"/>
+              <line x1="14" y1="10" x2="14" y2="18" stroke="#D4AF37" stroke-width="1.5"/>
+              <circle cx="14" cy="22" r="2" fill="none" stroke="#0B2545" stroke-width="1"/>
+            </svg>
+          </div>
+          <h3 class="card__title">火箭测运控</h3>
+          <p class="card__text">
+            覆盖运载火箭总测、发射场测控与飞行段遥测解析，以标准化测控流程与冗余架构确保每次发射任务数据完整、判读精准。
+          </p>
+          <a href="services.html#rocket" class="card__link">
+            查看详情 <span class="card__link-arrow">→</span>
+          </a>
+        </article>
+
+        <!-- 卡片 3：航天数据应用 -->
+        <article class="card">
+          <div class="card__icon">
+            <svg viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect x="4" y="4" width="20" height="20" rx="3" fill="none" stroke="#0B2545" stroke-width="1.5"/>
+              <polyline points="7 18 11 12 15 15 21 8" fill="none" stroke="#D4AF37" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="21" cy="8" r="1.5" fill="#D4AF37"/>
+            </svg>
+          </div>
+          <h3 class="card__title">航天数据应用</h3>
+          <p class="card__text">
+            将遥感影像、遥测参数与轨道数据转化为可决策信息产品，服务于国土监测、气象预警与基础设施巡检等政企应用场景。
+          </p>
+          <a href="services.html#data" class="card__link">
+            查看详情 <span class="card__link-arrow">→</span>
+          </a>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== 核心优势 ====== -->
+  <section class="section section--alt">
+    <div class="container">
+      <div class="services__header">
+        <p class="services__label">核心优势</p>
+        <h2 class="services__title">工程化能力，航天级交付</h2>
+        <p class="services__desc">源自国家航天测控体系的一线工程经验，转化为可规模化的商业产品</p>
+      </div>
+
+      <div class="services__grid">
+        <article class="card">
+          <div class="card__icon">
+            <svg viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="14" cy="14" r="10" fill="none" stroke="#0B2545" stroke-width="1.5"/>
+              <polyline points="10 14 13 17 18 11" fill="none" stroke="#D4AF37" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h3 class="card__title">极致可靠</h3>
+          <p class="card__text">
+            继承航天测控体系冗余架构与质量追溯机制，关键链路双冗余设计，确保每次任务交付零缺陷。
+          </p>
+        </article>
+
+        <article class="card">
+          <div class="card__icon">
+            <svg viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="14" cy="14" r="10" fill="none" stroke="#0B2545" stroke-width="1.5"/>
+              <line x1="8" y1="14" x2="20" y2="14" stroke="#D4AF37" stroke-width="1.5"/>
+              <line x1="14" y1="8" x2="14" y2="20" stroke="#D4AF37" stroke-width="1.5"/>
+            </svg>
+          </div>
+          <h3 class="card__title">开放协作</h3>
+          <p class="card__text">
+            标准化接口与协议设计，支持与客户现有系统无缝集成，开放数据格式与 API，降低对接成本。
+          </p>
+        </article>
+
+        <article class="card">
+          <div class="card__icon">
+            <svg viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="14" cy="14" r="10" fill="none" stroke="#0B2545" stroke-width="1.5"/>
+              <path d="M14 8 L16 12 L20 13 L17 16 L18 20 L14 18 L10 20 L11 16 L8 13 L12 12 Z" fill="none" stroke="#D4AF37" stroke-width="1.2"/>
+            </svg>
+          </div>
+          <h3 class="card__title">星辰大海</h3>
+          <p class="card__text">
+            以商业航天产业化为使命，持续投入前沿技术预研，从近地轨道走向深空，拓展人类航天活动边界。
+          </p>
+        </article>
+
+        <article class="card">
+          <div class="card__icon">
+            <svg viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect x="4" y="4" width="20" height="20" rx="3" fill="none" stroke="#0B2545" stroke-width="1.5"/>
+              <line x1="4" y1="10" x2="24" y2="10" stroke="#0B2545" stroke-width="1"/>
+              <line x1="4" y1="16" x2="24" y2="16" stroke="#0B2545" stroke-width="1"/>
+              <line x1="10" y1="4" x2="10" y2="24" stroke="#0B2545" stroke-width="1"/>
+              <circle cx="17" cy="13" r="2" fill="#D4AF37"/>
+            </svg>
+          </div>
+          <h3 class="card__title">数据驱动</h3>
+          <p class="card__text">
+            全链路数据采集、治理与建模能力，将遥测、遥感与轨道数据转化为可量化、可决策的信息资产。
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== 关键数字 ====== -->
+  <section class="section">
+    <div class="container">
+      <div class="services__header">
+        <p class="services__label">关键数字</p>
+        <h2 class="services__title">用数据说话</h2>
+      </div>
+      <div class="services__grid" style="text-align: center;">
+        <div class="card" style="border: none; background: transparent;">
+          <p style="font-size: var(--text-5xl); font-weight: 700; color: var(--color-accent); line-height: 1; margin-bottom: var(--space-3);">40+</p>
+          <p class="card__text" style="margin-bottom: 0;">次发射任务测控参与</p>
+        </div>
+        <div class="card" style="border: none; background: transparent;">
+          <p style="font-size: var(--text-5xl); font-weight: 700; color: var(--color-accent); line-height: 1; margin-bottom: var(--space-3);">30+</p>
+          <p class="card__text" style="margin-bottom: 0;">颗卫星在轨管理</p>
+        </div>
+        <div class="card" style="border: none; background: transparent;">
+          <p style="font-size: var(--text-5xl); font-weight: 700; color: var(--color-accent); line-height: 1; margin-bottom: var(--space-3);">28</p>
+          <p class="card__text" style="margin-bottom: 0;">项自主知识产权</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== 新闻速递 ====== -->
+  <section class="section section--alt">
+    <div class="container">
+      <div class="services__header">
+        <p class="services__label">新闻速递</p>
+        <h2 class="services__title">最新动态</h2>
+      </div>
+      <div class="news-list" style="max-width: 800px; margin: 0 auto;">
+        <article class="news-item" data-news-date="2024-10-18">
+          <div class="news-item__date">
+            <span class="news-item__day"></span>
+            <span class="news-item__month"></span>
+          </div>
+          <div class="news-item__body">
+            <h3 class="news-item__title">
+              <a href="news.html">星舟科技完成 A+ 轮融资，航天数据应用板块正式启航</a>
+            </h3>
+            <p class="news-item__excerpt">
+              星舟科技宣布完成 A+ 轮融资，本轮融资将重点投入航天数据应用产品研发与市场拓展。
+            </p>
+          </div>
+        </article>
+        <article class="news-item" data-news-date="2024-08-06">
+          <div class="news-item__date">
+            <span class="news-item__day"></span>
+            <span class="news-item__month"></span>
+          </div>
+          <div class="news-item__body">
+            <h3 class="news-item__title">
+              <a href="news.html">卫星在轨管理平台接入卫星突破 30 颗，多星座并行管理能力获验证</a>
+            </h3>
+            <p class="news-item__excerpt">
+              星舟科技卫星在轨管理平台累计接入低轨与高轨卫星突破 30 颗，工程化能力获得多家星座运营方认可。
+            </p>
+          </div>
+        </article>
+        <article class="news-item" data-news-date="2024-05-20">
+          <div class="news-item__date">
+            <span class="news-item__day"></span>
+            <span class="news-item__month"></span>
+          </div>
+          <div class="news-item__body">
+            <h3 class="news-item__title">
+              <a href="news.html">星舟科技与某卫星运营方签署在轨服务长期合作协议</a>
+            </h3>
+            <p class="news-item__excerpt">
+              双方将在卫星在轨状态监测、轨道机动规划与延寿管理领域展开深度合作，服务周期覆盖卫星全生命周期。
+            </p>
+          </div>
+        </article>
+      </div>
+      <div style="text-align: center; margin-top: var(--space-10);">
+        <a href="news.html" class="btn btn--primary">查看全部动态</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== 合作伙伴/资质占位 ====== -->
+  <section class="section">
+    <div class="container">
+      <div class="services__header">
+        <p class="services__label">合作伙伴</p>
+        <h2 class="services__title">值得信赖的航天服务伙伴</h2>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-8); max-width: 800px; margin: 0 auto;">
+        <div style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: var(--radius-md); padding: var(--space-8); text-align: center; color: var(--color-gray-400); font-size: var(--text-sm);">合作伙伴占位</div>
+        <div style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: var(--radius-md); padding: var(--space-8); text-align: center; color: var(--color-gray-400); font-size: var(--text-sm);">合作伙伴占位</div>
+        <div style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: var(--radius-md); padding: var(--space-8); text-align: center; color: var(--color-gray-400); font-size: var(--text-sm);">合作伙伴占位</div>
+        <div style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: var(--radius-md); padding: var(--space-8); text-align: center; color: var(--color-gray-400); font-size: var(--text-sm);">合作伙伴占位</div>
+      </div>
+    </div>
+  </section>
+
+  </main>
+
+  <!-- ====== 页脚 ====== -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__grid">
+        <!-- 品牌列 -->
+        <div>
+          <p class="footer__brand">星舟科技</p>
+          <p class="footer__brand-desc">
+            商业航天解决方案提供商，以工程化交付能力推动卫星服务、火箭测运控与航天数据应用产业化进程。
+          </p>
+        </div>
+        <!-- 快速链接 -->
+        <div>
+          <p class="footer__heading">快速链接</p>
+          <ul class="footer__list">
+            <li><a href="index.html">首页</a></li>
+            <li><a href="services.html">服务</a></li>
+            <li><a href="about.html">关于我们</a></li>
+            <li><a href="news.html">新闻动态</a></li>
+            <li><a href="contact.html">联系我们</a></li>
+          </ul>
+        </div>
+        <!-- 业务板块 -->
+        <div>
+          <p class="footer__heading">业务板块</p>
+          <ul class="footer__list">
+            <li><a href="services.html#satellite">卫星在轨服务</a></li>
+            <li><a href="services.html#rocket">火箭测运控</a></li>
+            <li><a href="services.html#data">航天数据应用</a></li>
+          </ul>
+        </div>
+        <!-- 联系方式 -->
+        <div>
+          <p class="footer__heading">联系方式</p>
+          <ul class="footer__list">
+            <li>北京市海淀区航天路 88 号</li>
+            <li>星舟大厦 12 层</li>
+            <li>tel@xingzhouchina.com</li>
+            <li>+86 10 8888 6688</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer__bottom">
+        <p class="footer__copy">&copy; 2024 星舟科技 XingZhou Space Technology Co., Ltd. 保留所有权利。</p>
+        <p>京 ICP 备 2024XXXXXX 号</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>
