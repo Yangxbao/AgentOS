@@ -59,8 +59,10 @@ def upgrade() -> None:
         salt = secrets.token_hex(16)
         conn.execute(
             sa.text(
-                "INSERT INTO sys_user (id, username, password_hash, display_name, owner_id, status, created_at, updated_at) "
-                "VALUES (:id, 'admin', :pwd, '管理员', 'local', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                "INSERT INTO sys_user (id, username, password_hash, display_name, "
+                "owner_id, status, created_at, updated_at) "
+                "VALUES (:id, 'admin', :pwd, '管理员', 'local', 'active', "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
             ).bindparams(pwd=_hash_password("admin123", salt)),
             {"id": new_id()},
         )
