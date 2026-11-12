@@ -53,6 +53,13 @@ function errorLabel(code: string): string {
   return ERROR_LABEL[code] ?? code
 }
 
+/** 模型显示名：去掉 litellm 的 provider 前缀（openai/glm-4.5-air → glm-4.5-air）。 */
+function modelLabel(model: string | null | undefined): string {
+  if (!model) return '—'
+  const slash = model.indexOf('/')
+  return slash >= 0 && model.slice(0, slash).length <= 12 ? model.slice(slash + 1) : model
+}
+
 // 时间线动作中文名（用户语言，内部事件标识不外露）
 const TIMELINE_LABEL: Record<string, string> = {
   'task.created': '创建任务',
@@ -126,7 +133,7 @@ function timelineSummary(item: TimelineItem): string {
         return step
     }
   }
-  if (item.kind === 'agent_run') return `步骤 ${item.step_id ?? ''} · 执行人 ${item.employee_name ?? ''}（${item.model ?? ''}）`
+  if (item.kind === 'agent_run') return `步骤 ${item.step_id ?? ''} · 执行人 ${item.employee_name ?? ''}（${modelLabel(item.model)}）`
   if (item.kind === 'handoff') return `${item.summary ?? ''}`
   if (item.kind === 'approval') {
     const statusText = item.status === 'approved' ? '已批准'
@@ -713,7 +720,7 @@ export default function TaskDetailPage() {
         </p>
         <table className="mt-2 w-full text-left text-xs">
           <thead className="text-slate-500">
-            <tr><th className="py-1">员工</th><th>模型</th><th>Prompt</th><th>Completion</th><th>成本</th><th>计费</th></tr>
+            <tr><th className="py-1">员工</th><th>模型</th><th>输入 tokens</th><th>输出 tokens</th><th>成本</th><th>计费</th></tr>
           </thead>
           <tbody>
             {data.usage.records.map((record) => (

@@ -40,7 +40,12 @@ const empStyle = {
  * - 部门直属员工排在部门右侧一列（紧跟其后）；子部门排在员工行之后；
  * - 兄弟部门的行带首尾相接、互不交叠，员工数与子树深度自动撑开行带高度。
  */
-function buildGraph(tree: OrgTree, employees: Employee[], showEmployees: boolean): { nodes: Node[]; edges: Edge[] } {
+function buildGraph(
+  tree: OrgTree,
+  employees: Employee[],
+  showEmployees: boolean,
+  expandedDepts: Set<string>,
+): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = []
   const edges: Edge[] = []
   const rootId = 'company-root'
@@ -55,11 +60,13 @@ function buildGraph(tree: OrgTree, employees: Employee[], showEmployees: boolean
   const placeDept = (node: OrgNode, depth: number, rowStart: number, parentId: string | null): number => {
     const id = `dept-${node.id}`
     const emps = empRowsByDept.get(node.id) ?? []
+    // 员工节点可见性：全局开关，或单独展开该部门（点击部门节点切换）
+    const expandEmps = showEmployees || expandedDepts.has(node.id)
     let cursor = rowStart
 
     // 本部门直属员工：紧跟部门节点右侧一列
     const empStartRow = cursor
-    cursor += Math.max(emps.length, 0)
+    if (expandEmps) cursor += Math.max(emps.length, 0)
 
     // 子部门依次向下排
     for (const child of node.children) {
@@ -73,20 +80,22 @@ function buildGraph(tree: OrgTree, employees: Employee[], showEmployees: boolean
       id,
       position: { x: depth * H_GAP, y: centerRow * ROW_H },
       data: {
-        label: `${node.name}\n${node.positions.length} 岗位${positionNames ? `：${positionNames}` : ''}${emps.length ? `\n👥 员工 ${emps.length} 人` : ''}`,
+        kind: 'dept',
+        deptId: node.id,
+        label: `${node.name}\n${node.positions.length} 岗位${positionNames ? `：${positionNames}` : ''}${emps.length ? `\n👥 员工 ${emps.length} 人（点击${expandEmps ? '收起' : '展开'}）` : ''}`,
       },
-      style: deptStyle,
+      style: { ...deptStyle, cursor: 'pointer' },
     })
     if (parentId) {
       edges.push({ id: `edge-${parentId}-${id}`, source: parentId, target: id })
     }
-    if (showEmployees) {
+    if (expandEmps) {
       emps.forEach((employee, index) => {
         nodes.push({
           id: `emp-${employee.id}`,
           position: { x: depth * H_GAP + DEPT_W + 44, y: (empStartRow + index) * ROW_H },
-          data: { label: `${employee.avatar || '🤖'} ${employee.name}\n${employee.title || '员工'}` },
-          style: empStyle,
+          data: { kind: 'emp', employeeId: employee.id, label: `${employee.avatar || '🤖'} ${employee.name}\n${employee.title || '员工'}` },
+          style: { ...empStyle, cursor: 'pointer' },
         })
         edges.push({
           id: `edge-${id}-emp-${employee.id}`,
@@ -111,11 +120,11 @@ function buildGraph(tree: OrgTree, employees: Employee[], showEmployees: boolean
     cursor += placeDept(dept, 0, cursor, rootId)
   }
 
-  // 公司根节点：垂直居中于整棵树
+  // 公司根节点：顶部；点击展开未分配部门的员工
   nodes.push({
     id: rootId,
     position: { x: 0, y: -ROW_H },
-    data: { label: `🏢 ${tree.company.name}` },
+    data: { kind: 'dept', deptId: '__root__', label: `🏢 ${tree.company.name}\n（点击展开未分配部门的员工）` },
     style: {
       width: DEPT_W,
       fontSize: 13,
@@ -125,19 +134,21 @@ function buildGraph(tree: OrgTree, employees: Employee[], showEmployees: boolean
       background: '#042f2e',
       color: '#ccfbf1',
       padding: 8,
+      cursor: 'pointer',
     },
   })
 
-  // 未分配部门的员工：默认聚合为一个节点（避免长列表撑爆画布），勾选后逐个显示
+  // 未分配部门的员工：默认聚合为一个节点（避免长列表撑爆画布），点击根节点或勾选开关后逐个显示
   const orphans = empRowsByDept.get('__root__') ?? []
+  const expandOrphans = showEmployees || expandedDepts.has('__root__')
   if (orphans.length > 0) {
-    if (showEmployees) {
+    if (expandOrphans) {
       orphans.forEach((employee, index) => {
         nodes.push({
           id: `emp-${employee.id}`,
           position: { x: H_GAP, y: -(index + 1) * ROW_H - 60 },
-          data: { label: `${employee.avatar || '🤖'} ${employee.name}\n${employee.title || '员工'}` },
-          style: empStyle,
+          data: { kind: 'emp', employeeId: employee.id, label: `${employee.avatar || '🤖'} ${employee.name}\n${employee.title || '员工'}` },
+          style: { ...empStyle, cursor: 'pointer' },
         })
         edges.push({
           id: `edge-${rootId}-emp-${employee.id}`,
@@ -150,8 +161,8 @@ function buildGraph(tree: OrgTree, employees: Employee[], showEmployees: boolean
       nodes.push({
         id: 'orphan-group',
         position: { x: H_GAP, y: -150 },
-        data: { label: `未分配部门的员工 ×${orphans.length}\n（可在员工详情中分配部门）` },
-        style: { ...empStyle, width: 250, border: '1px solid #78350f', background: '#1c1917', color: '#fde68a' },
+        data: { label: `未分配部门的员工 ×${orphans.length}\n（点击公司节点展开 / 可在员工详情中分配部门）` },
+        style: { ...empStyle, width: 280, border: '1px solid #78350f', background: '#1c1917', color: '#fde68a' },
       })
       edges.push({
         id: `edge-${rootId}-orphan-group`,
@@ -183,10 +194,30 @@ export default function OrgPage() {
     enabled: Boolean(activeCompanyId),
   })
   const [showEmployees, setShowEmployees] = useState(false)
+  const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set())
   const graph = useMemo(
-    () => (tree.data ? buildGraph(tree.data, employees.data?.items ?? [], showEmployees) : { nodes: [], edges: [] }),
-    [tree.data, employees.data, showEmployees],
+    () => (tree.data ? buildGraph(tree.data, employees.data?.items ?? [], showEmployees, expandedDepts) : { nodes: [], edges: [] }),
+    [tree.data, employees.data, showEmployees, expandedDepts],
   )
+
+  // 节点点击：部门 → 展开/收起该部门员工；员工 → 跳转员工详情
+  const onNodeClick = (_event: unknown, node: Node) => {
+    const kind = (node.data as { kind?: string }).kind
+    if (kind === 'emp') {
+      const employeeId = (node.data as { employeeId?: string }).employeeId
+      if (employeeId) window.open(`/employees/${employeeId}`, '_self')
+      return
+    }
+    if (kind === 'dept' || node.id === 'company-root') {
+      const deptId = (node.data as { deptId?: string }).deptId ?? '__root__'
+      setExpandedDepts((prev) => {
+        const next = new Set(prev)
+        if (next.has(deptId)) next.delete(deptId)
+        else next.add(deptId)
+        return next
+      })
+    }
+  }
 
   if (companies.isLoading) return <p className="p-6 text-slate-400">正在加载公司…</p>
 
@@ -241,6 +272,7 @@ export default function OrgPage() {
             key={graph.nodes.map((node) => node.id).join('|')}
             nodes={graph.nodes}
             edges={graph.edges}
+            onNodeClick={onNodeClick}
             fitView
             fitViewOptions={{ padding: 0.2 }}
             proOptions={{ hideAttribution: true }}

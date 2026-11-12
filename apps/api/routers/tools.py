@@ -301,6 +301,77 @@ def read_workspace_file_endpoint(
     return {"path": relative_of(root, target), "size": size, "content": text}
 
 
+# 网站预览允许的扩展名 → Content-Type（交付成果 iframe 渲染用）
+_PREVIEW_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".htm": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".md": "text/plain; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".ico": "image/x-icon",
+}
+
+
+@router.get("/workspaces/{workspace_id}/site/{file_path:path}")
+def site_preview_endpoint(
+    workspace_id: str,
+    file_path: str,
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor),
+):
+    """按原始 Content-Type 返回工作区文件，供审批卡片的 iframe 直接渲染网站实际效果。
+
+    相对路径资源（styles.css/main.js/图片）会自动落到本端点，整站可交互预览。
+    安全边界与工具层一致：owner 资源、safe_resolve、扩展名白名单、5MB 上限、密钥扫描。
+    """
+    import mimetypes
+    from pathlib import Path
+
+    from packages.shared.errors import DomainError as _DomainError
+    from packages.tools.fs import MAX_IMAGE_BYTES, scan_secrets
+    from packages.tools.paths import PathDenied, safe_resolve
+    from packages.tools.workspaces import get_workspace
+
+    workspace = get_workspace(db, actor.owner_id, workspace_id)
+    root = Path(workspace.root_path)
+    try:
+        target = safe_resolve(root, file_path, allow_root=False)
+    except PathDenied as exc:
+        raise DomainError(exc.code, exc.message, 403, exc.detail) from exc
+    if not target.is_file():
+        raise DomainError("TOOL_PATH_NOT_FOUND", f"文件不存在：{file_path}", 404)
+    suffix = target.suffix.lower()
+    media_type = _PREVIEW_TYPES.get(suffix)
+    if media_type is None:
+        guessed = mimetypes.guess_type(target.name)[0]
+        media_type = guessed if guessed and guessed.startswith(("image/", "text/")) else None
+    if media_type is None:
+        raise _DomainError("TOOL_BINARY_UNSUPPORTED", f"预览不支持该文件类型：{suffix}", 415)
+    size = target.stat().st_size
+    if size > MAX_IMAGE_BYTES:
+        raise _DomainError("TOOL_OUTPUT_TOO_LARGE", f"文件 {size} 字节超过预览上限 {MAX_IMAGE_BYTES}", 413)
+    raw = target.read_bytes()
+    if suffix in {".html", ".htm", ".css", ".js", ".json", ".md", ".txt", ".svg"}:
+        if b"\x00" in raw[:8192]:
+            raise _DomainError("TOOL_BINARY_UNSUPPORTED", "二进制文件不支持预览", 415)
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise _DomainError("TOOL_BINARY_UNSUPPORTED", "文件不是合法 UTF-8 文本", 415) from exc
+        scan_secrets(text)
+    from fastapi import Response
+
+    return Response(content=raw, media_type=media_type)
+
+
 @router.get("/tools")
 def list_tools_endpoint(actor: ActorContext = Depends(get_actor)):
     return {

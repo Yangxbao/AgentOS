@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { toolsApi } from '../api/tools'
+import { useMemo, useState } from 'react'
+import { api } from '../api/client'
 
 export interface DeliverableInfo {
   step_id: string
@@ -11,55 +11,79 @@ export interface DeliverableInfo {
   suffix: string
 }
 
-/** 交付成果预览：HTML 用沙箱 iframe 渲染，文本类直接展示——审批人先看到成果再签字。 */
+/**
+ * 交付成果预览：
+ * - 网页（.html/.htm）用沙箱 iframe 加载整站端点——相对路径的 CSS/JS/图片全部生效，
+ *   审批人直接看到网站实际效果并可点击页面；
+ * - 文档（.md/.txt 等）以原文展示。
+ * 页签默认选中首页（index.html）。
+ */
 export function DeliverablePreview({ deliverables }: { deliverables: DeliverableInfo[] }) {
-  const [active, setActive] = useState(0)
-  const current = deliverables[active]
-  const content = useQuery({
+  const ordered = useMemo(() => {
+    const pages = deliverables.filter((d) => d.suffix === '.html' || d.suffix === '.htm')
+    const docs = deliverables.filter((d) => d.suffix !== '.html' && d.suffix !== '.htm')
+    return [...pages, ...docs]
+  }, [deliverables])
+
+  const [active, setActive] = useState(() => {
+    const firstPage = ordered.findIndex((d) => d.suffix === '.html' || d.suffix === '.htm')
+    return firstPage >= 0 ? firstPage : 0
+  })
+  const current = ordered[active]
+  const isPage = current?.suffix === '.html' || current?.suffix === '.htm'
+  const isHtmlDoc = isPage
+
+  const docContent = useQuery({
     queryKey: ['deliverable-content', current?.workspace_id, current?.path],
-    queryFn: () => toolsApi.fileContent(current!.workspace_id, current!.path),
-    enabled: Boolean(current),
+    queryFn: () => api.get<{ path: string; size: number; content: string }>(
+      `/api/v1/workspaces/${current!.workspace_id}/files/content?path=${encodeURIComponent(current!.path)}`,
+    ),
+    enabled: Boolean(current) && !isPage,
   })
 
-  const isHtml = current?.suffix === '.html'
-  const isMarkdown = current?.suffix === '.md'
+  if (!current) return null
+
+  const siteUrl = `${api.baseUrl}/api/v1/workspaces/${current.workspace_id}/site/${current.path
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')}`
 
   return (
     <div className="mt-2 overflow-hidden rounded border border-slate-700 bg-slate-900">
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-2 py-1.5">
-        <span className="text-xs text-slate-400">交付成果（{deliverables.length} 件）：</span>
-        {deliverables.map((item, index) => (
-          <button
-            key={`${item.workspace_id}:${item.path}:${item.step_id}`}
-            className={`rounded px-2 py-0.5 text-xs ${
-              index === active ? 'bg-sky-600 text-white' : 'border border-slate-700 text-slate-300 hover:bg-slate-800'
-            }`}
-            onClick={() => setActive(index)}
-          >
-            {item.path.split('/').pop()}
-            <span className="ml-1 text-[10px] opacity-70">{Math.ceil(item.size / 1024)}KB</span>
-          </button>
-        ))}
-        {content.isError && (
-          <span className="text-xs text-red-400">预览加载失败：{(content.error as Error).message}</span>
-        )}
+        <span className="text-xs text-slate-400">交付成果（{ordered.length} 件）：</span>
+        {ordered.map((item, index) => {
+          const isWeb = item.suffix === '.html' || item.suffix === '.htm'
+          return (
+            <button
+              key={`${item.workspace_id}:${item.path}:${item.step_id}`}
+              className={`rounded px-2 py-0.5 text-xs ${
+                index === active ? 'bg-sky-600 text-white' : 'border border-slate-700 text-slate-300 hover:bg-slate-800'
+              }`}
+              onClick={() => setActive(index)}
+            >
+              {isWeb && <span className="mr-1">🌐</span>}
+              {item.path.split('/').pop()}
+              <span className="ml-1 text-[10px] opacity-70">{Math.ceil(item.size / 1024)}KB</span>
+            </button>
+          )
+        })}
       </div>
-      {current && isHtml ? (
+      {isHtmlDoc ? (
         <iframe
-          title={`交付物预览：${current.path}`}
-          className="h-[520px] w-full bg-white"
-          srcDoc={content.data?.content ?? ''}
-          // 允许脚本（导航高亮等效果）但禁同源权限：员工生成的内容运行在沙箱内，无法触达父页面
-          sandbox="allow-scripts"
+          title={`网站效果预览：${current.path}`}
+          className="h-[560px] w-full bg-white"
+          src={siteUrl}
+          // 允许脚本（导航高亮/表单校验等）但禁同源权限：员工生成的代码运行在沙箱内
+          sandbox="allow-scripts allow-forms"
         />
       ) : (
         <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap px-3 py-2 text-xs leading-5 text-slate-300">
-          {content.data?.content ?? '加载中…'}
+          {docContent.data?.content ?? '加载中…'}
         </pre>
       )}
       <div className="border-t border-slate-800 px-2 py-1 text-[11px] text-slate-500">
-        来源工作区：{current?.workspace_name} · {current?.path}
-        {isMarkdown && '（Markdown 原文）'}
+        {isPage ? '🌐 网站实际效果（可点击页面内链接）' : '📄 文档内容'} · 来源工作区：{current.workspace_name} · {current.path}
       </div>
     </div>
   )

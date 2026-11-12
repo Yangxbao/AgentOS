@@ -817,18 +817,18 @@ def _collect_deliverables(session: Session, task: Task, steps: list[dict]) -> li
     """收集任务实际落盘的交付物清单，写入 task.result 供前端审批/详情页直接预览。
 
     客户验收时要"直接看到成果"而不是一行摘要文字（2026-11-12 用户反馈）：
-    前端据此用工作区文件内容端点渲染 HTML（iframe）/ 文本（Markdown/代码）。
+    - deliverable 文件本身必收；
+    - 若交付物所在目录（含一层子目录）存在网页文件（.html/.htm），一并收集——
+      审批卡片的 iframe 直接渲染网站实际效果，而不是只看确认文档。
     """
     items: list[dict] = []
     seen: set[tuple[str, str]] = set()
-    for step in steps:
-        deliverable = str(step.get("deliverable") or "").strip()
-        if not deliverable or not _DELIVERABLE_PATH_RE.match(deliverable):
-            continue
-        employee = session.get(Employee, step.get("employee_id")) if step.get("employee_id") else None
+
+    def _workspaces_of(employee_id: str | None):
+        employee = session.get(Employee, employee_id) if employee_id else None
         if employee is None:
-            continue
-        workspaces = session.execute(
+            return []
+        return session.execute(
             select(Workspace)
             .join(EmployeeWorkspaceGrant, EmployeeWorkspaceGrant.workspace_id == Workspace.id)
             .where(
@@ -836,27 +836,52 @@ def _collect_deliverables(session: Session, task: Task, steps: list[dict]) -> li
                 EmployeeWorkspaceGrant.owner_id == task.owner_id,
             )
         ).scalars().all()
-        for workspace in workspaces:
+
+    def _add(workspace, target, step_id: str, rel_path: str) -> None:
+        key = (workspace.id, rel_path)
+        if key in seen:
+            return
+        seen.add(key)
+        items.append({
+            "step_id": step_id,
+            "workspace_id": workspace.id,
+            "workspace_name": workspace.name,
+            "path": rel_path,
+            "size": target.stat().st_size,
+            "suffix": target.suffix.lower(),
+        })
+
+    for step in steps:
+        deliverable = str(step.get("deliverable") or "").strip()
+        if not deliverable or not _DELIVERABLE_PATH_RE.match(deliverable):
+            continue
+        for workspace in _workspaces_of(step.get("employee_id")):
             if workspace.status != "active":
                 continue
-            key = (workspace.id, deliverable)
-            if key in seen:
-                continue
+            root = Path(workspace.root_path)
             try:
-                target = safe_resolve(Path(workspace.root_path), deliverable)
+                target = safe_resolve(root, deliverable)
             except PathDenied:
                 continue
-            if target.is_file():
-                seen.add(key)
-                items.append({
-                    "step_id": step["id"],
-                    "workspace_id": workspace.id,
-                    "workspace_name": workspace.name,
-                    "path": deliverable,
-                    "size": target.stat().st_size,
-                    "suffix": target.suffix.lower(),
-                })
-                break
+            if not target.is_file():
+                continue
+            _add(workspace, target, step["id"], deliverable)
+            if target.suffix.lower() in {".html", ".htm"}:
+                continue  # 网站本身就是交付物，目录族无需再扫
+            # 网站族收集：交付物所在目录 + 一层子目录中的网页文件
+            scan_dirs = [target.parent]
+            try:
+                scan_dirs += [d for d in sorted(target.parent.iterdir()) if d.is_dir()][:6]
+            except OSError:
+                pass
+            for scan_dir in scan_dirs:
+                try:
+                    for page in sorted(scan_dir.glob("*.htm*")):
+                        if page.is_file() and len(items) < 16:
+                            _add(workspace, page, step["id"], page.relative_to(root).as_posix())
+                except OSError:
+                    continue
+            break
     return items
 
 
