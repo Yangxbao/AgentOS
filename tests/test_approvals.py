@@ -169,3 +169,49 @@ def test_pending_approval_list(write_client, seeded_team):
 
     detail = write_client.get(f"/api/v1/approvals/{listing['items'][0]['id']}").json()
     assert detail["task"]["id"] == task["id"]
+
+
+def test_tool_approval_resume_does_not_skip_after_run(write_client, seeded_team, tool_employee,
+                                                      seeded_workspace, workspace_root, tools_on):
+    """工具审批恢复不得污染 approved_by：交付后审批（after_run）必须照常触发。
+
+    2026-11-12 星舟二期实验实证缺陷：gate=tool_call 审批恢复的 run 写入
+    approved_by，导致 executor 的 after_run 闸门（not run.approved_by）误判
+    已签收，客户交付验收被静默跳过（任务直接 succeeded）。
+    """
+    company_id = seeded_team["company"]["id"]
+    instruction = (
+        f'[tool:fs.write_file {{"workspace_id":"{seeded_workspace["id"]}",'
+        f'"path":"notes/deliverable.txt","content":"V1","mode":"overwrite"}}] 覆盖交付物'
+    )
+    task = create_task(
+        write_client, company_id, tool_employee["id"], title="工具审批后交付验收",
+        instruction=instruction, approval_required=True, approval_stage="after_run",
+    )
+    assert write_client.post(f"/api/v1/tasks/{task['id']}/run").status_code == 202
+
+    # 第一停点：工具调用审批（overwrite = high 风险）
+    tool_gate = wait_task(write_client, task["id"], {"awaiting_approval"})
+    pending = [a for a in tool_gate["approvals"] if a["status"] == "pending"]
+    assert len(pending) == 1 and pending[0]["gate"] == "tool_call"
+
+    approved = _decide(write_client, pending[0]["id"], "approve", "允许覆盖")
+    assert approved.status_code == 200
+    assert approved.json()["run_id"]  # 恢复 run 已建
+
+    # 第二停点：交付后审批必须照常出现（修复前这里被跳过、任务直接 succeeded）
+    after_gate = wait_task(write_client, task["id"], {"awaiting_approval"})
+    pending2 = [a for a in after_gate["approvals"] if a["status"] == "pending"]
+    assert len(pending2) == 1 and pending2[0]["gate"] == "after_run"
+    # 修复点验证：工具审批恢复的 run 不携带交付签收人（签收发生在 after_run 批准时）
+    for run in after_gate["runs"]:
+        if run["trigger"] == "approval":
+            assert run["approved_by"] is None
+
+    final_ok = _decide(write_client, pending2[0]["id"], "approve", "客户验收通过")
+    assert final_ok.status_code == 200
+    final = wait_task(write_client, task["id"], {"succeeded"})
+    # after_run 批准后，签收人写入交付 run（正确语义）
+    signed = [r for r in final["runs"] if r["state"] == "succeeded" and r["approved_by"]]
+    assert signed and signed[-1]["approved_by"] == "local"
+    assert (workspace_root / "notes" / "deliverable.txt").read_text(encoding="utf-8") == "V1"

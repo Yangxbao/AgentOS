@@ -2,9 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
-import { tasksApi, type PlanStep } from '../api/tasks'
+import { tasksApi, type PlanStep, type TimelineItem } from '../api/tasks'
 import { toolsApi } from '../api/tools'
 import { approvalContextText } from '../components/approvalText'
+import { DeliverablePreview, type DeliverableInfo } from '../components/DeliverablePreview'
 import { StateBadge } from './TasksPage'
 
 const ACTIVE_STATES = new Set(['queued', 'running', 'paused', 'awaiting_approval', 'rework_required'])
@@ -15,6 +16,131 @@ function errorText(error: unknown): string {
 
 function ts(value: string | null | undefined): string {
   return value ? value.replace('T', ' ').slice(0, 19) : '—'
+}
+
+/** 工具参数/结果 → 人话摘要（k=v 形式，替代原始 JSON）。 */
+function argsSummary(payload: Record<string, unknown> | undefined | null): string {
+  if (!payload || Object.keys(payload).length === 0) return '—'
+  const text = Object.entries(payload)
+    .map(([key, value]) => `${key}=${String(value).slice(0, 48)}`)
+    .join('，')
+  return text.length > 120 ? `${text.slice(0, 120)}…` : text
+}
+
+// 常见错误码 → 用户语言
+const ERROR_LABEL: Record<string, string> = {
+  TOOL_PATH_NOT_FOUND: '文件不存在',
+  TOOL_PATH_EXISTS: '文件已存在',
+  TOOL_PATH_DENIED: '路径不允许',
+  TOOL_ARGS_INVALID: '参数无效',
+  TOOL_OUTPUT_TOO_LARGE: '超出大小上限',
+  TOOL_BINARY_UNSUPPORTED: '二进制文件不支持',
+  TOOL_SENSITIVE_FILE: '命中敏感文件',
+  TOOL_EXEC_FAILED: '执行失败',
+  TOOL_APPROVAL_REJECTED: '审批被驳回',
+  TOOL_LOOP_EXCEEDED: '工具调用次数达上限',
+  TOOLS_DISABLED: '工具执行已关闭',
+  TOOL_NOT_GRANTED: '工具未授权',
+  BUDGET_EXCEEDED: '预算超限',
+  EXECUTION_TIMEOUT: '执行超时',
+  EXECUTION_FAILED: '执行失败',
+  DELIVERABLE_MISSING: '交付物未落盘',
+  EXECUTION_MODEL_UNAVAILABLE: '模型连接不可用',
+  TASK_ILLEGAL_TRANSITION: '当前状态不允许该操作',
+}
+
+function errorLabel(code: string): string {
+  return ERROR_LABEL[code] ?? code
+}
+
+// 时间线动作中文名（用户语言，内部事件标识不外露）
+const TIMELINE_LABEL: Record<string, string> = {
+  'task.created': '创建任务',
+  'task.updated': '更新任务',
+  'task.plan.update': '设置执行计划',
+  'task.plan.updated': '设置执行计划',
+  'task.queued': '加入执行队列',
+  'task.run': '启动执行',
+  'task.retried': '任务重试',
+  'task.replanned': '重新规划',
+  'task.decomposed': '自动拆解任务',
+  'task.paused': '任务暂停',
+  'task.resumed': '恢复执行',
+  'task.cancelled': '任务取消',
+  'task.succeeded': '✅ 任务交付完成',
+  'task.failed': '❌ 任务失败',
+  'task.export': '导出任务报告',
+  'task.budget_exceeded': '⚠ 预算熔断',
+  'task.tool_denied_limit': '⚠ 连续拒绝熔断',
+  'task.auto_resumed': '自动恢复执行',
+  'run.started': '开始执行',
+  'run.failed': '执行中止',
+  'agent.run': '员工开始执行',
+  'agent.completed': '员工执行完成',
+  'agent.timeout': '员工执行超时',
+  'agent.handoff': '员工间工作交接',
+  'tool.succeeded': '工具执行成功',
+  'tool.failed': '工具执行失败',
+  'tool.denied': '工具被拒绝',
+  'tool.approved': '工具调用获批',
+  'approval.requested': '等待审批',
+  'approval.pending': '等待审批',
+  'approval.approved': '审批通过',
+  'approval.rejected': '审批驳回',
+}
+
+/** 事件 payload → 人话摘要（不再显示原始 JSON）。 */
+function timelineSummary(item: TimelineItem): string {
+  const payload = (item.payload ?? {}) as Record<string, unknown>
+  const gateName = (gate: unknown) =>
+    gate === 'after_run' ? '客户验收' : gate === 'before_run' ? '执行前审批' : '工具调用'
+  if (item.kind === 'event') {
+    const step = payload.step_id ? `（步骤 ${payload.step_id}）` : ''
+    switch (item.type) {
+      case 'task.created':
+        return `创建任务「${payload.title ?? ''}」`
+      case 'task.plan.update':
+      case 'task.plan.updated':
+        return `设置 ${((payload.steps as string[] | undefined)?.length ?? 0)} 步执行计划`
+      case 'task.export':
+        return `导出任务报告（${payload.format ?? 'json'} 格式）`
+      case 'agent.completed':
+        return `步骤 ${payload.step_id} 完成，产出 ${payload.chars ?? 0} 字`
+      case 'tool.succeeded':
+        return `工具 ${payload.tool} 执行成功`
+      case 'tool.failed':
+        return `工具 ${payload.tool} 执行失败${payload.error_code ? `（${payload.error_code}）` : ''}`
+      case 'tool.denied':
+        return `工具 ${payload.tool} 被拒绝`
+      case 'run.failed':
+        return `执行中止：${payload.code ?? ''}${payload.message ? ` — ${payload.message}` : ''}`
+      case 'approval.requested':
+        return `等待${gateName(payload.gate)}，请到审批中心处理`
+      case 'approval.approved':
+        return `${gateName(payload.gate)}已批准`
+      case 'task.succeeded':
+        return '任务全部步骤完成并交付'
+      case 'task.failed':
+        return `任务失败${payload.error ? `：${payload.error}` : ''}`
+      default:
+        return step
+    }
+  }
+  if (item.kind === 'agent_run') return `步骤 ${item.step_id ?? ''} · 执行人 ${item.employee_name ?? ''}（${item.model ?? ''}）`
+  if (item.kind === 'handoff') return `${item.summary ?? ''}`
+  if (item.kind === 'approval') {
+    const statusText = item.status === 'approved' ? '已批准'
+      : item.status === 'rejected' ? '已驳回'
+        : item.status === 'changes_requested' ? '要求修改' : item.status ?? ''
+    return `${statusText}${item.comment ? `：${item.comment}` : ''}`
+  }
+  if (item.kind === 'tool_call') {
+    const statusText = item.status === 'succeeded' ? '成功'
+      : item.status === 'failed' ? '失败' : item.status === 'denied' ? '被拒绝'
+        : item.status === 'awaiting_approval' ? '等待审批' : item.status ?? ''
+    return `工具 ${item.tool} ${statusText}${item.error_code ? `（${item.error_code}）` : ''}`
+  }
+  return ''
 }
 
 export default function TaskDetailPage() {
@@ -238,6 +364,9 @@ export default function TaskDetailPage() {
                   {approvalContextText(approval)}
                 </div>
               )}
+              {approval.gate === 'after_run' && (data.result as Record<string, unknown>)?.deliverables != null && (
+                <DeliverablePreview deliverables={((data.result as Record<string, unknown>).deliverables ?? []) as DeliverableInfo[]} />
+              )}
               <input className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2"
                      placeholder="审批意见（驳回时必填）" value={comment}
                      onChange={(event) => setComment(event.target.value)} />
@@ -308,7 +437,10 @@ export default function TaskDetailPage() {
                             : call.status === 'timeout' ? 'bg-amber-900 text-amber-300'
                             : 'bg-slate-800 text-slate-300'
                         }`}>
-                          {call.status}
+                          {call.status === 'succeeded' ? '成功'
+                            : call.status === 'denied' ? '被拒绝'
+                              : call.status === 'awaiting_approval' ? '等待审批'
+                                : call.status === 'timeout' ? '超时' : call.status}
                         </span>
                       </td>
                       <td>
@@ -317,19 +449,16 @@ export default function TaskDetailPage() {
                         }`}>{call.risk_level}</span>
                       </td>
                       <td>{call.step_id || '—'} / #{call.call_index}</td>
-                      <td className="break-all font-mono text-[11px] text-slate-400"
-                          title={JSON.stringify(call.args_summary)}>
-                        {JSON.stringify(call.args_summary).slice(0, 90)}
-                        {JSON.stringify(call.args_summary).length > 90 ? '…' : ''}
+                      <td className="break-all text-[11px] text-slate-400" title={JSON.stringify(call.args_summary)}>
+                        {argsSummary(call.args_summary)}
                       </td>
                       <td>{call.duration_ms}ms</td>
                       <td className="break-all">
                         {call.error_code
-                          ? <span className="text-red-300">{call.error_code}：{call.error_message}</span>
+                          ? <span className="text-red-300">{errorLabel(call.error_code)}：{call.error_message}</span>
                           : (
                             <span className="text-slate-400" title={JSON.stringify(call.output_summary)}>
-                              {JSON.stringify(call.output_summary).slice(0, 110)}
-                              {JSON.stringify(call.output_summary).length > 110 ? '…' : ''}
+                              {argsSummary(call.output_summary)}
                             </span>
                           )}
                       </td>
@@ -561,15 +690,8 @@ export default function TaskDetailPage() {
           {(timeline.data?.items ?? []).map((item, index) => (
             <li key={index} className="flex gap-3 border-t border-slate-800 py-1">
               <span className="w-36 shrink-0 text-slate-500">{ts(item.at)}</span>
-              <span className="w-40 shrink-0 text-slate-400">{item.type}</span>
-              <span className="text-slate-300">
-                {item.kind === 'agent_run' && `${item.step_id} · ${item.employee_name} · ${item.model}`}
-                {item.kind === 'handoff' && `交接 → ${item.step_id}：${item.summary ?? ''}`}
-                {item.kind === 'approval' && `${item.status ?? ''} ${item.comment ?? ''}`}
-                {item.kind === 'tool_call' && `${item.tool ?? ''} · ${item.status ?? ''}${item.error_code ? ` · ${item.error_code}` : ''}`}
-                {item.kind === 'tool_call' && `${item.tool ?? ''} · ${item.status ?? ''}${item.error_code ? ` · ${item.error_code}` : ''}`}
-                {item.kind === 'event' && JSON.stringify(item.payload ?? {}).slice(0, 160)}
-              </span>
+              <span className="w-32 shrink-0 text-slate-400">{TIMELINE_LABEL[item.type] ?? item.type}</span>
+              <span className="text-slate-300">{timelineSummary(item)}</span>
             </li>
           ))}
         </ol>

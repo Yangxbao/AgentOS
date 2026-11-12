@@ -143,4 +143,10 @@ export const toolsApi = {
   taskToolCalls: (taskId: string, page = 1, pageSize = 100) =>
     api.get<Page<ToolCall>>(`/api/v1/tasks/${taskId}/tool-calls?page=${page}&page_size=${pageSize}`),
   toolCall: (id: string) => api.get<ToolCall>(`/api/v1/tool-calls/${id}`),
+
+  /** 读取工作区文本文件（owner 管理视图；审批成果预览用）。 */
+  fileContent: (workspaceId: string, path: string) =>
+    api.get<{ path: string; size: number; content: string }>(
+      `/api/v1/workspaces/${workspaceId}/files/content?path=${encodeURIComponent(path)}`,
+    ),
 }

@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="加入星舟科技 — 商业航天领域热招职位，与顶尖团队共筑航天梦想">
+  <title>加入我们 — 星舟科技</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .job-card {
+      background: var(--color-white, #fff);
+      border: 1px solid var(--color-gray-200, #e5e7eb);
+      border-radius: 8px;
+      padding: var(--space-8, 2rem);
+      transition: box-shadow 0.2s, border-color 0.2s;
+    }
+    .job-card:hover {
+      border-color: var(--color-accent-dark, #D4AF37);
+      box-shadow: 0 4px 16px rgba(11,37,69,0.08);
+    }
+    .job-card__title {
+      font-size: 1.375rem;
+      font-weight: 700;
+      color: var(--color-primary, #0B2545);
+      margin-bottom: var(--space-2, 0.5rem);
+    }
+    .job-card__location {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.875rem;
+      color: var(--color-accent-dark, #D4AF37);
+      font-weight: 600;
+      margin-bottom: var(--space-4, 1rem);
+    }
+    .job-card__section {
+      margin-bottom: var(--space-4, 1rem);
+    }
+    .job-card__section:last-child {
+      margin-bottom: 0;
+    }
+    .job-card__label {
+      font-size: 0.875rem;
+      font-weight: 700;
+      color: var(--color-primary, #0B2545);
+      margin-bottom: var(--space-2, 0.5rem);
+    }
+    .job-card__list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .job-card__list li {
+      position: relative;
+      padding-left: 1.25rem;
+      margin-bottom: 0.375rem;
+      font-size: 0.9375rem;
+      line-height: 1.6;
+      color: var(--color-gray-600, #4b5563);
+    }
+    .job-card__list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.55em;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--color-accent-dark, #D4AF37);
+    }
+    .benefits-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: var(--space-6, 1.5rem);
+    }
+    .benefit-item {
+      display: flex;
+      gap: var(--space-3, 0.75rem);
+      align-items: flex-start;
+    }
+    .benefit-item__icon {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(212,175,55,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .benefit-item__title {
+      font-weight: 700;
+      font-size: 0.9375rem;
+      color: var(--color-primary, #0B2545);
+      margin-bottom: 2px;
+    }
+    .benefit-item__desc {
+      font-size: 0.875rem;
+      color: var(--color-gray-600, #4b5563);
+      line-height: 1.5;
+    }
+    .process-steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: var(--space-6, 1.5rem);
+      counter-reset: step;
+    }
+    .process-step {
+      counter-increment: step;
+      text-align: center;
+      position: relative;
+    }
+    .process-step::before {
+      content: counter(step);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      margin: 0 auto var(--space-4, 1rem);
+      border-radius: 50%;
+      background: var(--color-primary, #0B2545);
+      color: var(--color-accent-dark, #D4AF37);
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+    .process-step__title {
+      font-size: 1.0625rem;
+      font-weight: 700;
+      color: var(--color-primary, #0B2545);
+      margin-bottom: var(--space-2, 0.5rem);
+    }
+    .process-step__desc {
+      font-size: 0.875rem;
+      color: var(--color-gray-600, #4b5563);
+      line-height: 1.6;
+    }
+    .navbar__link--active {
+      color: var(--color-accent-dark, #D4AF37) !important;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ====== 导航栏 ====== -->
+  <nav class="navbar" role="navigation" aria-label="主导航">
+    <div class="container navbar__inner">
+      <a href="index.html" class="navbar__brand" aria-label="星舟科技首页">
+        <svg class="navbar__brand-icon" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M18 2 L22 14 L26 22 L18 34 L10 22 L14 14 Z" fill="#D4AF37" opacity="0.9"/>
+          <path d="M18 6 L20 14 L22 20 L18 30 L14 20 L16 14 Z" fill="#0B2545" opacity="0.6"/>
+        </svg>
+        星舟科技
+      </a>
+      <button class="navbar__toggle" type="button" aria-label="打开菜单" aria-expanded="false">
+        <span class="navbar__toggle-bar"></span>
+        <span class="navbar__toggle-bar"></span>
+        <span class="navbar__toggle-bar"></span>
+      </button>
+      <ul class="navbar__menu">
+        <li><a href="index.html" class="navbar__link">首页</a></li>
+        <li><a href="services.html" class="navbar__link">服务</a></li>
+        <li><a href="about.html" class="navbar__link">关于我们</a></li>
+        <li><a href="news.html" class="navbar__link">新闻动态</a></li>
+        <li><a href="contact.html" class="navbar__link">联系我们</a></li>
+        <li><a href="careers.html" class="navbar__link navbar__link--active" aria-current="page">加入我们</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main id="main-content" role="main">
+
+  <!-- ====== 页面头部 ====== -->
+  <header class="page-header">
+    <div class="container">
+      <h1 class="page-header__title">加入我们</h1>
+      <p class="page-header__subtitle">拥抱星辰大海，共筑航天梦想</p>
+    </div>
+  </header>
+
+  <!-- ====== 招聘宣言 ====== -->
+  <section class="section">
+    <div class="container container--narrow">
+      <div class="services__header">
+        <p class="services__label">人才理念</p>
+        <h2 class="services__title">与顶尖团队一起，参与改变世界的航天项目</h2>
+      </div>
+      <div style="max-width: 720px; margin: 0 auto; line-height: var(--leading-relaxed); color: var(--color-gray-600);">
+        <p style="margin-bottom: var(--space-6);">
+          星舟科技致力于推动商业航天产业发展，专注于卫星服务、火箭测运控及数据应用领域。我们汇聚行业精英，以科技创新为驱动，打造世界一流的航天技术解决方案。
+        </p>
+        <p>
+          在这里，你将与顶尖团队一起，参与改变世界的航天项目，共同探索宇宙的无限可能。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== 热招职位 ====== -->
+  <section class="section section--alt">
+    <div class="container">
+      <div class="services__header">
+        <p class="services__label">热招职位</p>
+        <h2 class="services__title">开放岗位</h2>
+        <p class="services__desc">加入星舟，在航天赛道释放你的专业能量</p>
+      </div>
+
+      <div class="services__grid">
+
+        <!-- 职位1：航天测控工程师 -->
+        <article class="job-card">
+          <h3 class="job-card__title">航天测控工程师</h3>
+          <p class="job-card__location">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8 1C5.24 1 3 3.24 3 6c0 4.5 5 9 5 9s5-4.5 5-9c0-2.76-2.24-5-5-5z" fill="#D4AF37"/><circle cx="8" cy="6" r="2" fill="#0B2545"/></svg>
+            北京
+          </p>
+          <div class="job-card__section">
+            <p class="job-card__label">岗位职责</p>
+            <ul class="job-card__list">
+              <li>负责火箭发射及卫星在轨测控系统的设计与实施</li>
+              <li>监测航天器运行状态，分析轨道参数，确保任务安全</li>
+              <li>制定测控方案，优化测控网络布局与资源配置</li>
+              <li>处理测控数据，编写技术报告，参与任务复盘</li>
+            </ul>
+          </div>
+          <div class="job-card__section">
+            <p class="job-card__label">任职要求</p>
+            <ul class="job-card__list">
+              <li>航天测控、航天器动力学等相关专业本科及以上学历</li>
+              <li>熟悉航天测控原理，具备轨道计算与姿态控制经验</li>
+              <li>精通 C/C++/Python 编程，具备数据处理能力</li>
+              <li>有航天项目经验者优先，具备良好的团队协作能力</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- 职位2：前端开发工程师 -->
+        <article class="job-card">
+          <h3 class="job-card__title">前端开发工程师</h3>
+          <p class="job-card__location">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8 1C5.24 1 3 3.24 3 6c0 4.5 5 9 5 9s5-4.5 5-9c0-2.76-2.24-5-5-5z" fill="#D4AF37"/><circle cx="8" cy="6" r="2" fill="#0B2545"/></svg>
+            上海
+          </p>
+          <div class="job-card__section">
+            <p class="job-card__label">岗位职责</p>
+            <ul class="job-card__list">
+              <li>开发航天数据可视化平台，实现复杂数据的直观展示</li>
+              <li>构建响应式 Web 应用，确保多平台兼容性</li>
+              <li>优化用户交互体验，提升系统性能与稳定性</li>
+              <li>与后端团队协作，完成数据接口对接与功能集成</li>
+            </ul>
+          </div>
+          <div class="job-card__section">
+            <p class="job-card__label">任职要求</p>
+            <ul class="job-card__list">
+              <li>计算机相关专业本科及以上学历，3 年以上前端开发经验</li>
+              <li>精通 HTML5、CSS3、JavaScript，熟练掌握 React/Vue 框架</li>
+              <li>具备数据可视化经验，熟悉 D3.js、ECharts 等图表库</li>
+              <li>了解航天业务者优先，具备良好的代码规范和团队协作能力</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- 职位3：卫星数据分析师 -->
+        <article class="job-card">
+          <h3 class="job-card__title">卫星数据分析师</h3>
+          <p class="job-card__location">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8 1C5.24 1 3 3.24 3 6c0 4.5 5 9 5 9s5-4.5 5-9c0-2.76-2.24-5-5-5z" fill="#D4AF37"/><circle cx="8" cy="6" r="2" fill="#0B2545"/></svg>
+            深圳
+          </p>
+          <div class="job-card__section">
+            <p class="job-card__label">岗位职责</p>
+            <ul class="job-card__list">
+              <li>处理卫星遥感数据，提取有价值的信息与洞察</li>
+              <li>开发数据分析算法，优化数据处理流程</li>
+              <li>构建数据模型，支持商业决策与业务拓展</li>
+              <li>撰写数据分析报告，为项目提供数据支撑</li>
+            </ul>
+          </div>
+          <div class="job-card__section">
+            <p class="job-card__label">任职要求</p>
+            <ul class="job-card__list">
+              <li>遥感、地理信息、计算机科学等相关专业硕士及以上学历</li>
+              <li>熟悉卫星数据处理流程，具备遥感图像处理经验</li>
+              <li>精通 Python/R，熟练使用机器学习算法与工具</li>
+              <li>有航天数据分析项目经验，具备良好的逻辑思维能力</li>
+            </ul>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== 公司福利 ====== -->
+  <section class="section">
+    <div class="container">
+      <div class="services__header">
+        <p class="services__label">员工关怀</p>
+        <h2 class="services__title">公司福利</h2>
+        <p class="services__desc">全方位保障，让你专注航天事业</p>
+      </div>
+
+      <div class="benefits-grid">
+        <div class="benefit-item">
+          <div class="benefit-item__icon">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M10 2l2.5 5 5.5.8-4 3.9.9 5.3L10 14.5 5.1 17l.9-5.3-4-3.9 5.5-.8z" fill="#D4AF37"/></svg>
+          </div>
+          <div>
+            <p class="benefit-item__title">专业发展</p>
+            <p class="benefit-item__desc">完善的培训体系，技术导师一对一指导，参与前沿航天项目</p>
+          </div>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-item__icon">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="10" cy="10" r="8" stroke="#D4AF37" stroke-width="1.5" fill="none"/><path d="M10 6v4l3 2" stroke="#D4AF37" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </div>
+          <div>
+            <p class="benefit-item__title">薪酬待遇</p>
+            <p class="benefit-item__desc">具有竞争力的薪资，年终奖金，项目分红，股权激励</p>
+          </div>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-item__icon">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="2" y="3" width="16" height="14" rx="2" stroke="#D4AF37" stroke-width="1.5" fill="none"/><path d="M2 7h16" stroke="#D4AF37" stroke-width="1.5"/></svg>
+          </div>
+          <div>
+            <p class="benefit-item__title">工作环境</p>
+            <p class="benefit-item__desc">现代化办公环境，弹性工作制，远程办公支持</p>
+          </div>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-item__icon">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M10 2a6 6 0 016 6c0 4.5-6 10-6 10S4 12.5 4 8a6 6 0 016-6z" stroke="#D4AF37" stroke-width="1.5" fill="none"/><circle cx="10" cy="8" r="2" stroke="#D4AF37" stroke-width="1.5" fill="none"/></svg>
+          </div>
+          <div>
+            <p class="benefit-item__title">健康关怀</p>
+            <p class="benefit-item__desc">五险一金，补充医疗保险，年度体检，健身房会员</p>
+          </div>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-item__icon">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="7" cy="8" r="3" stroke="#D4AF37" stroke-width="1.5" fill="none"/><circle cx="13" cy="8" r="3" stroke="#D4AF37" stroke-width="1.5" fill="none"/><path d="M4 14c0-1.66 1.34-3 3-3h6c1.66 0 3 1.34 3 3v2H4z" stroke="#D4AF37" stroke-width="1.5" fill="none"/></svg>
+          </div>
+          <div>
+            <p class="benefit-item__title">团队建设</p>
+            <p class="benefit-item__desc">定期团建活动，航天主题参观，技术分享会</p>
+          </div>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-item__icon">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 4h12v12H4z" stroke="#D4AF37" stroke-width="1.5" fill="none"/><path d="M10 4v12M4 10h12" stroke="#D4AF37" stroke-width="1"/></svg>
+          </div>
+          <div>
+            <p class="benefit-item__title">其他福利</p>
+            <p class="benefit-item__desc">节日福利，生日礼金，带薪年假，婚育假期</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== 应聘流程 ====== -->
+  <section class="section section--alt">
+    <div class="container container--narrow">
+      <div class="services__header">
+        <p class="services__label">招聘流程</p>
+        <h2 class="services__title">应聘流程</h2>
+        <p class="services__desc">简洁高效的四步流程，助你快速入职</p>
+      </div>
+
+      <div class="process-steps">
+        <div class="process-step">
+          <p class="process-step__title">简历投递</p>
+          <p class="process-step__desc">通过官网或招聘平台提交个人简历，注明应聘职位</p>
+        </div>
+        <div class="process-step">
+          <p class="process-step__title">初筛面试</p>
+          <p class="process-step__desc">HR 进行简历筛选，安排技术面试，评估专业能力</p>
+        </div>
+        <div class="process-step">
+          <p class="process-step__title">综合面试</p>
+          <p class="process-step__desc">部门负责人面试，深入了解项目经验与职业规划</p>
+        </div>
+        <div class="process-step">
+          <p class="process-step__title">Offer 发放</p>
+          <p class="process-step__desc">通过面试后发放录用通知，办理入职手续</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== CTA ====== -->
+  <section class="section">
+    <div class="container" style="text-align: center;">
+      <h2 class="services__title" style="margin-bottom: var(--space-4, 1rem);">星舟科技期待你的加入</h2>
+      <p style="color: var(--color-gray-600, #4b5563); max-width: 520px; margin: 0 auto var(--space-8, 2rem); line-height: 1.6;">
+        与我们一起探索宇宙的无限可能！
+      </p>
+      <a href="mailto:talent@xingzhouchina.com" style="display: inline-block; padding: 0.75rem 2rem; background: var(--color-primary, #0B2545); color: var(--color-accent-dark, #D4AF37); border-radius: 6px; font-weight: 600; text-decoration: none; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">投递简历</a>
+    </div>
+  </section>
+
+  </main>
+
+  <!-- ====== 页脚 ====== -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__grid">
+        <div>
+          <p class="footer__brand">星舟科技</p>
+          <p class="footer__brand-desc">
+            商业航天解决方案提供商，以工程化交付能力推动卫星服务、火箭测运控与航天数据应用产业化进程。
+          </p>
+        </div>
+        <div>
+          <p class="footer__heading">快速链接</p>
+          <ul class="footer__list">
+            <li><a href="index.html">首页</a></li>
+            <li><a href="services.html">服务</a></li>
+            <li><a href="about.html">关于我们</a></li>
+            <li><a href="news.html">新闻动态</a></li>
+            <li><a href="contact.html">联系我们</a></li>
+            <li><a href="careers.html">加入我们</a></li>
+          </ul>
+        </div>
+        <div>
+          <p class="footer__heading">业务板块</p>
+          <ul class="footer__list">
+            <li><a href="services.html#satellite">卫星在轨服务</a></li>
+            <li><a href="services.html#rocket">火箭测运控</a></li>
+            <li><a href="services.html#data">航天数据应用</a></li>
+          </ul>
+        </div>
+        <div>
+          <p class="footer__heading">联系方式</p>
+          <ul class="footer__list">
+            <li>北京市海淀区航天路 88 号</li>
+            <li>星舟大厦 12 层</li>
+            <li>tel@xingzhouchina.com</li>
+            <li>+86 10 8888 6688</li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer__bottom">
+        <p class="footer__copy">&copy; 2024 星舟科技 XingZhou Space Technology Co., Ltd. 保留所有权利。</p>
+        <p>京 ICP 备 2024XXXXXX 号</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>

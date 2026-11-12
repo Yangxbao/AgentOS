@@ -6,23 +6,118 @@ import { Link } from 'react-router-dom'
 import { orgApi, type OrgNode, type OrgTree } from '../api/org'
 import { peopleApi, type Employee } from '../api/people'
 
-const NODE_WIDTH = 200
-const X_GAP = 260
-const Y_GAP = 120
+const DEPT_W = 210
+const EMP_W = 172
+const ROW_H = 84
+const H_GAP = 310
 
-function buildGraph(tree: OrgTree, employees: Employee[]): { nodes: Node[]; edges: Edge[] } {
+const deptStyle = {
+  width: DEPT_W,
+  whiteSpace: 'pre-line' as const,
+  fontSize: 12,
+  fontWeight: 600,
+  borderRadius: 10,
+  border: '1px solid #334155',
+  background: '#0f172a',
+  color: '#e2e8f0',
+  padding: 8,
+}
+
+const empStyle = {
+  width: EMP_W,
+  whiteSpace: 'pre-line' as const,
+  fontSize: 11,
+  borderRadius: 8,
+  border: '1px solid #1e40af',
+  background: '#0b1220',
+  color: '#dbeafe',
+  padding: 6,
+}
+
+/**
+ * 组织架构布局（横向树 + 行区间分配，结构性无重叠）：
+ * - 每个部门占一段连续"行带"，部门节点垂直居中于自己的行带；
+ * - 部门直属员工排在部门右侧一列（紧跟其后）；子部门排在员工行之后；
+ * - 兄弟部门的行带首尾相接、互不交叠，员工数与子树深度自动撑开行带高度。
+ */
+function buildGraph(tree: OrgTree, employees: Employee[], showEmployees: boolean): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = []
   const edges: Edge[] = []
-  const departmentLevels = new Map<string, number>()
-  let row = 0
+  const rootId = 'company-root'
 
-  // 公司根节点必须真实存在：否则员工挂到 company-root 时会产生悬空边
+  const empByDept = new Map<string, Employee[]>()
+  for (const employee of employees) {
+    const key = employee.department_id ?? '__root__'
+    if (!empByDept.has(key)) empByDept.set(key, [])
+    empByDept.get(key)!.push(employee)
+  }
+
+  const placeDept = (node: OrgNode, depth: number, rowStart: number, parentId: string | null): number => {
+    const id = `dept-${node.id}`
+    const emps = empRowsByDept.get(node.id) ?? []
+    let cursor = rowStart
+
+    // 本部门直属员工：紧跟部门节点右侧一列
+    const empStartRow = cursor
+    cursor += Math.max(emps.length, 0)
+
+    // 子部门依次向下排
+    for (const child of node.children) {
+      cursor += placeDept(child, depth + 1, cursor, id)
+    }
+
+    const totalRows = Math.max(cursor - rowStart, 1)
+    const centerRow = rowStart + (totalRows - 1) / 2
+    const positionNames = node.positions.map((p) => p.name).join(' / ')
+    nodes.push({
+      id,
+      position: { x: depth * H_GAP, y: centerRow * ROW_H },
+      data: {
+        label: `${node.name}\n${node.positions.length} 岗位${positionNames ? `：${positionNames}` : ''}${emps.length ? `\n👥 员工 ${emps.length} 人` : ''}`,
+      },
+      style: deptStyle,
+    })
+    if (parentId) {
+      edges.push({ id: `edge-${parentId}-${id}`, source: parentId, target: id })
+    }
+    if (showEmployees) {
+      emps.forEach((employee, index) => {
+        nodes.push({
+          id: `emp-${employee.id}`,
+          position: { x: depth * H_GAP + DEPT_W + 44, y: (empStartRow + index) * ROW_H },
+          data: { label: `${employee.avatar || '🤖'} ${employee.name}\n${employee.title || '员工'}` },
+          style: empStyle,
+        })
+        edges.push({
+          id: `edge-${id}-emp-${employee.id}`,
+          source: id,
+          target: `emp-${employee.id}`,
+          style: { strokeDasharray: '4 2' },
+        })
+      })
+    }
+    return totalRows
+  }
+
+  const empRowsByDept = new Map<string, Employee[]>()
+  for (const employee of employees) {
+    const key = employee.department_id ?? '__root__'
+    if (!empRowsByDept.has(key)) empRowsByDept.set(key, [])
+    empRowsByDept.get(key)!.push(employee)
+  }
+
+  let cursor = 0
+  for (const dept of tree.departments) {
+    cursor += placeDept(dept, 0, cursor, rootId)
+  }
+
+  // 公司根节点：垂直居中于整棵树
   nodes.push({
-    id: 'company-root',
-    position: { x: 0, y: -150 },
+    id: rootId,
+    position: { x: 0, y: -ROW_H },
     data: { label: `🏢 ${tree.company.name}` },
     style: {
-      width: NODE_WIDTH,
+      width: DEPT_W,
       fontSize: 13,
       fontWeight: 600,
       borderRadius: 10,
@@ -33,67 +128,40 @@ function buildGraph(tree: OrgTree, employees: Employee[]): { nodes: Node[]; edge
     },
   })
 
-  const walk = (node: OrgNode, level: number, parentId: string | null) => {
-    const id = `dept-${node.id}`
-    departmentLevels.set(node.id, level)
-    const positionNames = node.positions.map((p) => p.name).join(' / ')
-    nodes.push({
-      id,
-      position: { x: level * X_GAP, y: row * Y_GAP },
-      data: {
-        label: `${node.name}\n${node.positions.length} 岗位${positionNames ? `：${positionNames}` : ''}`,
-      },
-      style: {
-        width: NODE_WIDTH,
-        whiteSpace: 'pre-line',
-        fontSize: 12,
-        borderRadius: 10,
-        border: '1px solid #334155',
-        background: '#0f172a',
-        color: '#e2e8f0',
-        padding: 8,
-      },
-    })
-    row += 1
-    if (parentId) {
-      edges.push({ id: `edge-${parentId}-${id}`, source: parentId, target: id, animated: false })
-    }
-    node.children.forEach((child) => walk(child, level + 1, id))
-  }
-
-  tree.departments.forEach((dept) => walk(dept, 0, 'company-root'))
-
-  // 员工节点：挂在所属部门右侧；无部门则挂公司根节点左侧，避免与部门重叠
-  const counters = new Map<string, number>()
-  const addEmployeeNode = (employee: Employee, sourceId: string, x: number) => {
-    const index = counters.get(sourceId) ?? 0
-    counters.set(sourceId, index + 1)
-    const id = `emp-${employee.id}`
-    nodes.push({
-      id,
-      position: { x, y: index * 90 },
-      data: { label: `${employee.avatar || '🤖'} ${employee.name}\n${employee.title || '员工'}` },
-      style: {
-        width: 160,
-        whiteSpace: 'pre-line',
-        fontSize: 11,
-        borderRadius: 8,
-        border: '1px solid #1e40af',
-        background: '#0b1220',
-        color: '#dbeafe',
-        padding: 6,
-      },
-    })
-    edges.push({ id: `edge-${sourceId}-${id}`, source: sourceId, target: id, style: { strokeDasharray: '4 2' } })
-  }
-  employees.forEach((employee) => {
-    const departmentId = employee.department_id
-    if (departmentId && departmentLevels.has(departmentId)) {
-      addEmployeeNode(employee, `dept-${departmentId}`, (departmentLevels.get(departmentId)! + 1) * X_GAP)
+  // 未分配部门的员工：默认聚合为一个节点（避免长列表撑爆画布），勾选后逐个显示
+  const orphans = empRowsByDept.get('__root__') ?? []
+  if (orphans.length > 0) {
+    if (showEmployees) {
+      orphans.forEach((employee, index) => {
+        nodes.push({
+          id: `emp-${employee.id}`,
+          position: { x: H_GAP, y: -(index + 1) * ROW_H - 60 },
+          data: { label: `${employee.avatar || '🤖'} ${employee.name}\n${employee.title || '员工'}` },
+          style: empStyle,
+        })
+        edges.push({
+          id: `edge-${rootId}-emp-${employee.id}`,
+          source: rootId,
+          target: `emp-${employee.id}`,
+          style: { strokeDasharray: '4 2' },
+        })
+      })
     } else {
-      addEmployeeNode(employee, 'company-root', -260)
+      nodes.push({
+        id: 'orphan-group',
+        position: { x: H_GAP, y: -150 },
+        data: { label: `未分配部门的员工 ×${orphans.length}\n（可在员工详情中分配部门）` },
+        style: { ...empStyle, width: 250, border: '1px solid #78350f', background: '#1c1917', color: '#fde68a' },
+      })
+      edges.push({
+        id: `edge-${rootId}-orphan-group`,
+        source: rootId,
+        target: 'orphan-group',
+        style: { strokeDasharray: '4 2' },
+      })
     }
-  })
+  }
+
   return { nodes, edges }
 }
 
@@ -114,9 +182,10 @@ export default function OrgPage() {
     queryFn: () => peopleApi.listEmployees(activeCompanyId as string),
     enabled: Boolean(activeCompanyId),
   })
+  const [showEmployees, setShowEmployees] = useState(false)
   const graph = useMemo(
-    () => (tree.data ? buildGraph(tree.data, employees.data?.items ?? []) : { nodes: [], edges: [] }),
-    [tree.data, employees.data],
+    () => (tree.data ? buildGraph(tree.data, employees.data?.items ?? [], showEmployees) : { nodes: [], edges: [] }),
+    [tree.data, employees.data, showEmployees],
   )
 
   if (companies.isLoading) return <p className="p-6 text-slate-400">正在加载公司…</p>
@@ -155,6 +224,10 @@ export default function OrgPage() {
         >
           刷新
         </button>
+        <label className="flex items-center gap-1.5 text-xs text-slate-400">
+          <input type="checkbox" checked={showEmployees} onChange={(e) => setShowEmployees(e.target.checked)} />
+          显示员工节点
+        </label>
         {tree.isError && <span className="text-sm text-red-400">加载失败：{(tree.error as Error).message}</span>}
       </div>
 
@@ -169,7 +242,7 @@ export default function OrgPage() {
             nodes={graph.nodes}
             edges={graph.edges}
             fitView
-            fitViewOptions={{ padding: 0.25 }}
+            fitViewOptions={{ padding: 0.2 }}
             proOptions={{ hideAttribution: true }}
           >
             <Background />

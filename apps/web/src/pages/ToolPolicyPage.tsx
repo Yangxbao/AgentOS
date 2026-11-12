@@ -105,7 +105,7 @@ export default function ToolPolicyPage() {
       </div>
 
       <div className="rounded border border-red-900 bg-red-950/30 px-3 py-2 text-sm text-red-200">
-        Shell 执行在 M3 永久禁用：没有任何命令执行代码路径，公司策略也无法开启。
+        Shell 执行已禁用：出于安全考虑，系统不提供任何命令执行通道，公司策略也无法开启。
       </div>
 
       {message && <div className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm">{message}</div>}

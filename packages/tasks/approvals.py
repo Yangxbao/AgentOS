@@ -182,8 +182,11 @@ def decide(
             })
             from .service import enqueue_run
 
+            # 工具审批人不得写入 approved_by（该字段语义是 after_run 交付签收人）：
+            # 否则 executor 的 after_run 闸门误判"已签收"，客户验收被静默跳过
+            # （2026-11-12 星舟二期实验实证缺陷）。
             run = enqueue_run(
-                session, owner_id, task.id, trigger="approval", approved_by=actor_id
+                session, owner_id, task.id, trigger="approval", approved_by=None
             )
             return {
                 "approval": serialize_approval(row), "state": task.state, "run_id": run.id,
@@ -204,8 +207,14 @@ def decide(
 
         from .service import enqueue_run
 
+        # approved_by 的语义是"交付审批人"（after_run 签收）。工具调用审批（gate=tool_call）
+        # 的恢复 run 若也写入 approved_by，会让 executor 的 after_run 闸门
+        # （not run.approved_by）误判为"已签收"，静默跳过客户交付验收
+        # （2026-11-12 星舟二期实验实证缺陷）。before_run 恢复依赖
+        # _has_human_decision 双保险，approved_by 保持原语义继续写入。
+        approved_by = None if row.gate == "tool_call" else actor_id
         run = enqueue_run(
-            session, owner_id, task.id, trigger="approval", approved_by=actor_id
+            session, owner_id, task.id, trigger="approval", approved_by=approved_by
         )
         return {"approval": serialize_approval(row), "state": task.state, "run_id": run.id}
 

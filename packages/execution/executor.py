@@ -296,6 +296,7 @@ async def _execute(session: Session, task: Task, run: TaskRun) -> str:
             "mode": run.mode,
             "cost_usd": cost,
             "pending_approval": approval.id,
+            "deliverables": _collect_deliverables(session, task, steps),
         }
         _emit(session, task, run.id, "approval.requested", {
             "approval_id": approval.id, "gate": "after_run",
@@ -320,6 +321,7 @@ async def _execute(session: Session, task: Task, run: TaskRun) -> str:
         ],
         "mode": run.mode,
         "cost_usd": cost,
+        "deliverables": _collect_deliverables(session, task, steps),
     }
     task.version = (task.version or 1) + 1
     run.state = "succeeded"
@@ -809,6 +811,53 @@ def _task_images(session: Session, task: Task, employee: Employee, step: dict) -
         payload = load_image_data_uri(workspace.root_path, str(item["path"]))
         uris.append(payload["data_uri"])
     return uris
+
+
+def _collect_deliverables(session: Session, task: Task, steps: list[dict]) -> list[dict]:
+    """收集任务实际落盘的交付物清单，写入 task.result 供前端审批/详情页直接预览。
+
+    客户验收时要"直接看到成果"而不是一行摘要文字（2026-11-12 用户反馈）：
+    前端据此用工作区文件内容端点渲染 HTML（iframe）/ 文本（Markdown/代码）。
+    """
+    items: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for step in steps:
+        deliverable = str(step.get("deliverable") or "").strip()
+        if not deliverable or not _DELIVERABLE_PATH_RE.match(deliverable):
+            continue
+        employee = session.get(Employee, step.get("employee_id")) if step.get("employee_id") else None
+        if employee is None:
+            continue
+        workspaces = session.execute(
+            select(Workspace)
+            .join(EmployeeWorkspaceGrant, EmployeeWorkspaceGrant.workspace_id == Workspace.id)
+            .where(
+                EmployeeWorkspaceGrant.employee_id == employee.id,
+                EmployeeWorkspaceGrant.owner_id == task.owner_id,
+            )
+        ).scalars().all()
+        for workspace in workspaces:
+            if workspace.status != "active":
+                continue
+            key = (workspace.id, deliverable)
+            if key in seen:
+                continue
+            try:
+                target = safe_resolve(Path(workspace.root_path), deliverable)
+            except PathDenied:
+                continue
+            if target.is_file():
+                seen.add(key)
+                items.append({
+                    "step_id": step["id"],
+                    "workspace_id": workspace.id,
+                    "workspace_name": workspace.name,
+                    "path": deliverable,
+                    "size": target.stat().st_size,
+                    "suffix": target.suffix.lower(),
+                })
+                break
+    return items
 
 
 async def _run_single_step(
