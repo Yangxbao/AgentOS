@@ -30,9 +30,9 @@ def main() -> None:
 
     # uvicorn 延迟 import：与 scripts/run_api.py 同款启动路径
     import uvicorn
+    from fastapi.staticfiles import StaticFiles
 
     from apps.api.main import create_app
-    from fastapi.staticfiles import StaticFiles
 
     app = create_app()
     app.mount("/", StaticFiles(directory=str(DIST), html=True), name="web")

@@ -18,10 +18,11 @@ from datetime import datetime, timezone
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from packages.memory.retrieval import cjk_2grams as _cjk_2grams
+from packages.memory.retrieval import rank_by_similarity
 from packages.organization.common import iso_utc
 from packages.permissions.audit import write_audit
 from packages.persistence.db import memory_fts_available
-from packages.memory.retrieval import cjk_2grams as _cjk_2grams, rank_by_similarity
 from packages.persistence.models import Employee, MemoryItem, Task
 from packages.shared.errors import DomainError
 from packages.shared.types import new_id
