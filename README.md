@@ -56,11 +56,9 @@ task assignment, multi-agent execution with tool governance, and human sign-off 
 ![星舟官网首页](docs/assets/demo-xingzhou-home.png)
 ![星舟官网服务页](docs/assets/demo-xingzhou-services.png)
 
-### 案例 2：AI 团队开发网页小游戏 🎮
+### 案例 2：AI 文档团队交付 10 章中文用户手册 📖
 
-视觉质检员用 `fs.read_image` 工具**看设计图提取规范** → 前端按规范实现贪吃蛇 → 测试找出缺陷 → 修复 → 交付。真浏览器试玩验证：开始/移动/计分/撞墙判定/重开全部可用。
-
-![贪吃蛇游戏](docs/assets/demo-snake-game.png)
+产品经理设计大纲 → 内容文案撰写前三章 → 文档工程师撰写进阶章节 → 产品经理汇编审阅，**43KB 手册**直接进入 `docs/user-guide.md` 随仓库发布。命令示例经逐条核对，功能描述与源材料严格一致（禁止编造）。同一套流水线也完成了官网的发布前打磨（SEO / OG 标签 / favicon / 无障碍审计）。
 
 ### 案例 3：客户签收闭环 ✅
 
