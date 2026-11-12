@@ -1,6 +1,7 @@
 """FastAPI 依赖：数据库会话、分页、调用主体。
 
-B1 只有本地用户（owner_id="local"）；Agent 侧不发放任何凭证（BR-12）。
+M4 账号体系：AGENTOS_AUTH=on 时强制 Bearer 会话鉴权（owner_id=登录用户的数据空间）；
+默认 off，行为与历史版本完全一致（owner_id="local"）。认证实现见 packages/auth/。
 """
 from __future__ import annotations
 
@@ -8,11 +9,12 @@ import math
 from dataclasses import dataclass
 from typing import Generic, Iterator, TypeVar
 
-from fastapi import Query
+from fastapi import Query, Request
 from pydantic import BaseModel
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
+from packages import auth as auth_service
 from packages.persistence import get_session
 
 T = TypeVar("T")
@@ -25,9 +27,26 @@ class ActorContext:
     owner_id: str = "local"
 
 
-def get_actor() -> ActorContext:
-    """B1 固定为本地用户；M5 接入账号体系后替换为真实鉴权。"""
-    return ActorContext(actor_type="user", actor_id="local")
+def get_actor(request: Request) -> ActorContext:
+    """调用主体解析：AGENTOS_AUTH=on 时校验 Bearer 会话；off 时固定本地用户（兼容）。"""
+    if not auth_service.auth_enabled():
+        return ActorContext(actor_type="user", actor_id="local")
+    header = request.headers.get("Authorization") or ""
+    token = header[7:].strip() if header.lower().startswith("bearer ") else ""
+    session = get_session()
+    try:
+        info = auth_service.resolve_token(session, token)
+    finally:
+        session.close()
+    if info is None:
+        from packages.shared.errors import DomainError
+
+        raise DomainError("AUTH_REQUIRED", "未登录或会话已过期，请重新登录", 401)
+    return ActorContext(
+        actor_type="user",
+        actor_id=info["username"],
+        owner_id=info["owner_id"],
+    )
 
 
 def get_db() -> Iterator[Session]:

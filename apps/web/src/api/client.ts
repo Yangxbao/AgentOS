@@ -27,10 +27,27 @@ type RequestOptions = {
   idempotencyKey?: string
 }
 
+/** 登录态（M4）：token 存 localStorage，请求自动携带 Bearer；401 时清除并广播。 */
+const TOKEN_KEY = 'agentos_token'
+
+function authHeader(): Record<string, string> {
+  const token = localStorage.getItem(TOKEN_KEY)
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+function handleAuthFailure(status: number, code: string): void {
+  if (status === 401 && code === 'AUTH_REQUIRED' && localStorage.getItem(TOKEN_KEY)) {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem('agentos_user')
+    window.dispatchEvent(new Event('agentos-auth-changed'))
+  }
+}
+
 async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
     // 本地防护要求写请求携带该头（§11.8）；读请求带上也无害
     'X-AgentOS-Client': 'web',
+    ...authHeader(),
   }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
   if (options.expectedUpdatedAt) headers['If-Match'] = options.expectedUpdatedAt
@@ -59,6 +76,8 @@ async function request<T>(method: string, path: string, options: RequestOptions 
   }
 
   if (!response.ok) {
+    const code = (payload as ApiErrorBody | null)?.error?.code ?? ''
+    handleAuthFailure(response.status, code)
     throw new ApiError(response.status, payload as ApiErrorBody | null, `请求失败（HTTP ${response.status}）`)
   }
   return payload as T
@@ -82,7 +101,7 @@ async function requestRaw(path: string): Promise<{ text: string; contentType: st
   let response: Response
   try {
     response = await fetch(`${API_BASE}${path}`, {
-      headers: { 'X-AgentOS-Client': 'web' },
+      headers: { 'X-AgentOS-Client': 'web', ...authHeader() },
     })
   } catch (error) {
     throw new ApiError(0, null, `无法连接后端（${API_BASE}）：${(error as Error).message}`)

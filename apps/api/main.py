@@ -26,6 +26,7 @@ load_dotenv(ROOT / ".env")
 from apps.api.errors import RequestIdMiddleware, register_exception_handlers  # noqa: E402
 from apps.api.routers import (  # noqa: E402
     approvals,
+    auth,
     companies,
     config_io,
     departments,
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(legacy.router, prefix="/api")
     for router in (
+        auth.router,  # M4 账号体系（放最前：/auth/* 不依赖 Actor 鉴权）
         companies.router,
         departments.router,
         positions.router,

@@ -1,7 +1,8 @@
 """记忆检索中文增强：2-gram 召回 + 相关性排序（查询端，不改表结构）。"""
 from __future__ import annotations
 
-from packages.memory.service import _cjk_2grams, _expand_query_tokens
+from packages.memory.retrieval import cjk_2grams as _cjk_2grams
+from packages.memory.service import _expand_query_tokens
 
 
 def test_cjk_2grams_basic():

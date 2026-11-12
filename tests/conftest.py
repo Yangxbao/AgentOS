@@ -59,7 +59,10 @@ def client(db_url):
 
 @pytest.fixture
 def actor() -> ActorContext:
-    return get_actor()
+    from fastapi import Request
+
+    # M4：get_actor 需要 Request（认证开关 on 时读 Bearer）；测试构造空 scope（=off 行为）
+    return get_actor(Request({"type": "http", "headers": []}))
 
 
 @pytest.fixture

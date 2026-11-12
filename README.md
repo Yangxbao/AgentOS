@@ -56,11 +56,18 @@ task assignment, multi-agent execution with tool governance, and human sign-off 
 ![星舟官网首页](docs/assets/demo-xingzhou-home.png)
 ![星舟官网服务页](docs/assets/demo-xingzhou-services.png)
 
-### 案例 2：AI 文档团队交付 10 章中文用户手册 📖
+### 案例 2：AgentRater · AI 智能体点评平台（魔改版点评系统）⭐
+
+借鉴经典点评类项目的技术内核（评分聚合/分类榜单/互动），**业务对象魔改为 AI 智能体应用**：6 步流水线（PRD → 数据工程 → 首页 → 详情页 → 测试 → 交付）交付多页可交互站点——20 个虚构 AI Agent、搜索/分类筛选/评分排序/评分分布图/评价点赞/收藏，图片素材由系统自动生成。32 万 tokens，真浏览器验收通过。
+
+![AgentRater 首页](docs/assets/demo-agentrater-home.png)
+![AgentRater 详情页](docs/assets/demo-agentrater-detail.png)
+
+### 案例 3：AI 文档团队交付 10 章中文用户手册 📖
 
 产品经理设计大纲 → 内容文案撰写前三章 → 文档工程师撰写进阶章节 → 产品经理汇编审阅，**43KB 手册**直接进入 `docs/user-guide.md` 随仓库发布。命令示例经逐条核对，功能描述与源材料严格一致（禁止编造）。同一套流水线也完成了官网的发布前打磨（SEO / OG 标签 / favicon / 无障碍审计）。
 
-### 案例 3：客户签收闭环 ✅
+### 案例 4：客户签收闭环 ✅
 
 交付后（`after_run`）审批闸门 + 审批卡片内嵌**网站实际渲染**——签收人看着成果批，而不是读文档猜：
 

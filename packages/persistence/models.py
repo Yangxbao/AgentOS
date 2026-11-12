@@ -571,3 +571,34 @@ class MemoryItem(Base):
         # 去重：同一 owner+scope+employee 下内容哈希唯一（active 状态）
         Index("ix_memory_item_dedup", "owner_id", "scope", "employee_id", "content_hash"),
     )
+
+
+class SysUser(Base):
+    """账号体系（M4）：登录账号。owner_id 即该用户的数据空间（与业务表 owner_id 对齐）。
+
+    密码只存 PBKDF2 哈希（sha256，20 万轮，独立盐）；明文绝不落库。
+    首个账号由迁移种子创建（username=admin，owner_id='local'，绑定既有数据）。
+    """
+
+    __tablename__ = "sys_user"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(64), default="")
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | disabled
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
+class SysSession(Base):
+    """登录会话：随机 token（128bit hex）→ 用户。token 明文即凭证，哈希列用于审计比对。"""
+
+    __tablename__ = "sys_session"
+
+    token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("sys_user.id"), nullable=False, index=True)
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)

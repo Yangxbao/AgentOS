@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from packages.organization.common import iso_utc
 from packages.permissions.audit import write_audit
 from packages.persistence.db import memory_fts_available
+from packages.memory.retrieval import cjk_2grams as _cjk_2grams, rank_by_similarity
 from packages.persistence.models import Employee, MemoryItem, Task
 from packages.shared.errors import DomainError
 from packages.shared.types import new_id
@@ -280,19 +281,11 @@ def list_memories(
     return items, total
 
 
-def _cjk_2grams(text: str) -> list[str]:
-    """中文连续段 → 2-gram（FTS5 unicode61 把连续中文当一整块 token，子串查询命不中）。"""
-    grams: list[str] = []
-    for run in re.findall(r"[\u3400-\u4dbf\u4e00-\u9fff]{2,}", text):
-        if len(run) == 2:
-            grams.append(run)
-        else:
-            grams.extend(run[i:i + 2] for i in range(len(run) - 1))
-    return grams
-
-
 def _expand_query_tokens(query: str, limit: int = 24) -> list[str]:
-    """查询端分词增强：空白分词 + 中文段 2-gram（用于 LIKE 召回与相关性打分）。"""
+    """查询端分词增强：空白分词 + 中文段 2-gram（用于 LIKE 召回与相关性打分）。
+
+    分词口径唯一权威在 retrieval.cjk_2grams（本模块经别名 _cjk_2grams 引用）。
+    """
     tokens = [token for token in (query or "").split() if token]
     grams: list[str] = []
     for token in tokens:
@@ -403,9 +396,14 @@ def search_memories(
         )
         candidates = list(session.execute(stmt).scalars().all())
 
-    # 统一相关性排序：原词命中优先，中文 2-gram 命中率次之；同分保持原顺序（FTS rank 在前）
+    # 统一相关性排序（M4-RAG）：词面命中 + TF-IDF 余弦（语义相关性）加权融合；
+    # 多词查询下 TF-IDF 让"覆盖更全的候选"排前，纯字面命中（如常见字）被 IDF 抑制。
+    rag_scores = dict(rank_by_similarity(
+        query,
+        [(item.id, f"{item.title or ''}\n{item.content or ''}") for item in candidates],
+    ))
     scored = [
-        (-_memory_relevance(item, base_tokens, grams), index, item)
+        (-(_memory_relevance(item, base_tokens, grams) + 2.0 * rag_scores.get(item.id, 0.0)), index, item)
         for index, item in enumerate(candidates)
     ]
     scored.sort(key=lambda triple: (triple[0], triple[1]))

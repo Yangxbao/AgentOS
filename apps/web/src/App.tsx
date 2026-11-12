@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { lazy, Suspense } from 'react'
 import { Navigate, NavLink, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
 import { api } from './api/client'
+import { AuthBadge, AuthGate } from './components/AuthGate'
 import type { HealthResponse } from './api/types'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
@@ -80,12 +81,14 @@ function Shell() {
           <NavItem to="/settings/audit">审计</NavItem>
           <NavItem to="/settings/organization">组织设置</NavItem>
         </nav>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
+          <AuthBadge />
           <HealthBadge />
         </div>
       </header>
 
       <main className="min-h-0 flex-1 overflow-auto">
+        <AuthGate>
         <ErrorBoundary>
           <Suspense fallback={<PageFallback />}>
             <Routes>
@@ -109,6 +112,7 @@ function Shell() {
             </Routes>
           </Suspense>
         </ErrorBoundary>
+        </AuthGate>
       </main>
     </div>
   )

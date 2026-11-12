@@ -104,4 +104,6 @@ def test_local_token_required_when_configured(monkeypatch):
 def test_actor_is_local_user(actor):
     assert actor.actor_type == "user"
     assert actor.owner_id == "local"
-    assert get_actor().actor_id == "local"
+    from fastapi import Request as _Request
+
+    assert get_actor(_Request({"type": "http", "headers": []})).actor_id == "local"
