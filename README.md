@@ -132,6 +132,8 @@ cd apps/web && npm install && npm run dev   # http://127.0.0.1:5173
 
 > **零成本体验**：不填任何 API Key 也能完整运行（Mock 模式），全部测试与端到端验收免费。
 > **执行模式**：`mock` 不调外部服务；`real` 使用员工绑定的模型连接并真实计费。
+>
+> 📖 **完整使用说明**：[docs/user-guide.md](docs/user-guide.md)——10 章中文手册（由 AI 文档团队编写），覆盖建公司、派任务、审批与安全、记忆、FAQ。
 
 ## 🧪 质量与测试
 
