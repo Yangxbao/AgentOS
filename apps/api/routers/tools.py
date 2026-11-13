@@ -235,9 +235,8 @@ def showcase_endpoint(
     import json
     from pathlib import Path
 
-    from packages.tools.fs import MAX_READ_BYTES, scan_secrets
+    from packages.tools.fs import MAX_READ_BYTES
     from packages.tools.paths import PathDenied, safe_resolve
-    from packages.tools.workspaces import resolve_grant
 
     projects: list[dict] = []
     workspaces = db.execute(
