@@ -21,6 +21,7 @@ const OrgPage = lazy(() => import('./pages/OrgPage'))
 const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage'))
 const TasksPage = lazy(() => import('./pages/TasksPage'))
 const ToolPolicyPage = lazy(() => import('./pages/ToolPolicyPage'))
+const ShowcasePage = lazy(() => import('./pages/ShowcasePage'))
 const WorkspacesPage = lazy(() => import('./pages/WorkspacesPage'))
 
 function PageFallback() {
@@ -72,7 +73,8 @@ function Shell() {
           <NavItem to="/approvals">审批中心</NavItem>
           <NavItem to="/org">组织架构</NavItem>
           <NavItem to="/employees">AI 员工</NavItem>
-          <NavItem to="/assignments">派工预览</NavItem>
+          <NavItem to="/assignments">智能派单</NavItem>
+          <NavItem to="/showcase">成果展示</NavItem>
           <NavItem to="/settings/workspaces">工作区</NavItem>
           <NavItem to="/settings/tools">工具策略</NavItem>
           <NavItem to="/settings/memory">记忆中心</NavItem>
@@ -105,6 +107,7 @@ function Shell() {
               <Route path="/settings/memory" element={<MemoryPage />} />
               <Route path="/settings/models" element={<ModelConnectionsPage />} />
               <Route path="/assignments" element={<AssignmentPage />} />
+              <Route path="/showcase" element={<ShowcasePage />} />
               <Route path="/settings/import-export" element={<ImportExportPage />} />
               <Route path="/settings/audit" element={<AuditPage />} />
               <Route path="/settings/organization" element={<OrganizationSettings />} />

@@ -30,12 +30,27 @@ def main() -> None:
 
     # uvicorn 延迟 import：与 scripts/run_api.py 同款启动路径
     import uvicorn
+    from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
 
     from apps.api.main import create_app
 
     app = create_app()
-    app.mount("/", StaticFiles(directory=str(DIST), html=True), name="web")
+
+    # 静态资源（带 hash 的 js/css/图片）直接返回
+    app.mount("/assets", StaticFiles(directory=str(DIST / "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        """SPA 回退：dist 里的真实文件按文件返回，其余路径一律回 index.html（前端路由接管）。"""
+        candidate = (DIST / full_path).resolve()
+        if (
+            full_path
+            and candidate.is_file()
+            and candidate.is_relative_to(DIST.resolve())
+        ):
+            return FileResponse(candidate)
+        return FileResponse(DIST / "index.html")
 
     print(f"[run_prod] AgentOS 生产模式: http://127.0.0.1:{args.port}（前端 + API 同源）")
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")

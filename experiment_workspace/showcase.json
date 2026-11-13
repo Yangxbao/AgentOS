@@ -1,0 +1,43 @@
+{
+  "projects": [
+    {
+      "id": "agentrater",
+      "icon": "⭐",
+      "title": "AgentRater · AI 智能体点评平台",
+      "desc": "魔改版点评系统：20 个 AI 智能体、搜索/分类筛选/评分排序/评分分布/评价点赞/收藏",
+      "entry": "agentrater/index.html",
+      "type": "site",
+      "highlights": [
+        "6 步流水线",
+        "32 万 tokens",
+        "真浏览器验收通过"
+      ]
+    },
+    {
+      "id": "xingzhou",
+      "icon": "🌐",
+      "title": "星舟科技企业官网",
+      "desc": "7 名 AI 员工 9 步流水线交付的五页响应式官网（含品牌设计图识图驱动）",
+      "entry": "xingzhou/website/index.html",
+      "type": "site",
+      "highlights": [
+        "7 团队协作",
+        "11 次审批",
+        "移动端适配"
+      ]
+    },
+    {
+      "id": "user-guide",
+      "icon": "📖",
+      "title": "AgentOS 用户手册（10 章）",
+      "desc": "AI 文档团队交付的 43KB 中文手册：认识/快速开始/建 AI 公司/任务审批/工具安全/FAQ",
+      "entry": "manual/user_guide.md",
+      "type": "doc",
+      "highlights": [
+        "4 步流水线",
+        "43KB",
+        "命令逐条核对"
+      ]
+    }
+  ]
+}

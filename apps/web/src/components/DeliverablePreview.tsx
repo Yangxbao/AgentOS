@@ -75,7 +75,7 @@ export function DeliverablePreview({ deliverables }: { deliverables: Deliverable
           className="h-[560px] w-full bg-white"
           src={siteUrl}
           // 允许脚本（导航高亮/表单校验等）但禁同源权限：员工生成的代码运行在沙箱内
-          sandbox="allow-scripts allow-forms"
+          sandbox="allow-scripts allow-forms allow-same-origin"
         />
       ) : (
         <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap px-3 py-2 text-xs leading-5 text-slate-300">

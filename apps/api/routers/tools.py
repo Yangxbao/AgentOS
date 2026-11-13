@@ -223,6 +223,61 @@ def revoke_workspace_endpoint(
 # ---------------- 工作区文件浏览（owner 管理视图，只读） ----------------
 
 
+@router.get("/showcase")
+def showcase_endpoint(
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor),
+):
+    """成果展示（M4）：聚合各工作区根目录 showcase.json 里登记的 AI 团队交付成品。
+
+    前端据此渲染"成品展示"页——每项可直接内嵌整站预览（site 端点）或查看文档原文。
+    """
+    import json
+    from pathlib import Path
+
+    from packages.tools.fs import MAX_READ_BYTES, scan_secrets
+    from packages.tools.paths import PathDenied, safe_resolve
+    from packages.tools.workspaces import resolve_grant
+
+    projects: list[dict] = []
+    workspaces = db.execute(
+        select(Workspace).where(Workspace.owner_id == actor.owner_id, Workspace.status == "active")
+    ).scalars().all()
+    for workspace in workspaces:
+        manifest = safe_resolve(Path(workspace.root_path), "showcase.json", allow_root=False)
+        if not manifest.is_file():
+            continue
+        raw = manifest.read_bytes()
+        if len(raw) > MAX_READ_BYTES or b"\x00" in raw[:8192]:
+            continue
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        for project in data.get("projects") or []:
+            entry = str(project.get("entry") or "").strip()
+            if not entry:
+                continue
+            try:
+                target = safe_resolve(Path(workspace.root_path), entry, allow_root=False)
+            except PathDenied:
+                continue
+            if not target.is_file():
+                continue  # 成品已不存在则不展示
+            projects.append({
+                "id": f"{workspace.id}:{entry}",
+                "workspace_id": workspace.id,
+                "workspace_name": workspace.name,
+                "entry": entry,
+                "type": project.get("type", "site"),
+                "icon": project.get("icon", "📦"),
+                "title": project.get("title", entry),
+                "desc": project.get("desc", ""),
+                "highlights": project.get("highlights", []),
+            })
+    return {"projects": projects}
+
+
 @router.get("/workspaces/{workspace_id}/files")
 def browse_workspace_files_endpoint(
     workspace_id: str,
