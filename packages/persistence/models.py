@@ -602,3 +602,25 @@ class SysSession(Base):
     owner_id: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class TaskTemplate(Base):
+    """任务模板（M4-SOP）：把跑通的任务计划沉淀为可复用模板，一键实例化新任务。
+
+    plan 存全量步骤（instruction/deliverable/tools/images/timeout_s），实例化时
+    原样落到新任务的计划里；source_* 记录来源任务便于追溯。
+    """
+
+    __tablename__ = "task_template"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    company_id: Mapped[str] = mapped_column(String(32), ForeignKey("company.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    plan: Mapped[dict] = mapped_column(JSON, nullable=False)
+    source_task_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("task.id"), nullable=True)
+    source_task_title: Mapped[str] = mapped_column(String(200), default="")
+    usage_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)

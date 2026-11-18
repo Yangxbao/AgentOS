@@ -1,0 +1,21 @@
+【AgentOS 项目说明】
+
+项目：AgentOS — AI 数字员工协作操作系统（自研项目，GitHub 账号 Yangxbao）
+来源：github.com/Yangxbao/AgentOS
+用途：像经营一家真实公司一样，让多个 AI 数字员工组队协作交付成果（CEO/员工角色分工、任务流、浏览器验收等）。
+技术栈：Python 3.13 + FastAPI + React 18，含 Docker 部署、Alembic 数据库迁移。
+
+怎么用：
+- 双根目录的「启动AgentOS.bat」启动。
+- .env 是配置文件（模型 key 等），已随项目搬来。
+- .venv 虚拟环境按旧路径创建，若启动报错，删除 .venv 重建并重装 requirements.txt。
+
+主要目录：
+- apps\           应用（含 web 前端）
+- packages\       内部包
+- scripts\        脚本
+- docker\         容器相关
+- docs\、examples\、tests\  文档/示例/测试
+- HANDOFF*.md     各阶段交接文档
+
+备注：582.8MB。

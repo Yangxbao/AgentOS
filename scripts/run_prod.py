@@ -17,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "apps" / "web" / "dist"
+sys.path.insert(0, str(ROOT))  # 项目移动后 editable 指针可能失效，双保险
 
 
 def main() -> None:

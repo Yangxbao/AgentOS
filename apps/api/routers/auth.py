@@ -72,6 +72,44 @@ def me_endpoint(actor=Depends(get_actor)):
     return {"actor": actor.actor_id, "owner_id": actor.owner_id}
 
 
+class ChangePasswordBody(BaseModel):
+    old_password: str
+    new_password: str
+
+
+@router.post("/auth/change-password")
+def change_password_endpoint(body: ChangePasswordBody, request: Request, actor=Depends(get_actor)):
+    """修改密码：校验旧密码，成功后吊销全部会话（含当前），需重新登录。"""
+    header = request.headers.get("Authorization") or ""
+    token = header[7:].strip() if header.lower().startswith("bearer ") else ""
+    db = get_session()
+    try:
+        auth_service.change_password(
+            db, token_info={"user_id": _resolve_user_id(request, token)},
+            old_password=body.old_password, new_password=body.new_password,
+        )
+    finally:
+        db.close()
+    _audit_auth(request, action="auth.change_password", detail={"username": actor.actor_id},
+                owner_id=actor.owner_id, actor_id=actor.actor_id)
+    return {"ok": True, "message": "密码已修改，请重新登录"}
+
+
+def _resolve_user_id(request: Request, token: str) -> str:
+    from packages import auth as auth_service
+
+    db = get_session()
+    try:
+        info = auth_service.resolve_token(db, token)
+    finally:
+        db.close()
+    if info is None:
+        from packages.shared.errors import DomainError
+
+        raise DomainError("AUTH_REQUIRED", "未登录或会话已过期", 401)
+    return info["user_id"]
+
+
 @router.post("/auth/logout")
 def logout_endpoint(request: Request, actor=Depends(get_actor)):
     header = request.headers.get("Authorization") or ""

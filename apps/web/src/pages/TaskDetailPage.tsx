@@ -161,6 +161,24 @@ export default function TaskDetailPage() {
   const [planDirty, setPlanDirty] = useState(false)
   // 任务报告导出（Markdown/JSON）：hook 必须在早退 return 之前声明
   const [exporting, setExporting] = useState(false)
+  const [showTemplateForm, setShowTemplateForm] = useState(false)
+  const [templateName, setTemplateName] = useState('')
+  const [templateDesc, setTemplateDesc] = useState('')
+  const saveTemplate = useMutation({
+    mutationFn: () =>
+      tasksApi.createTemplate(data.company_id, {
+        task_id: data.id,
+        name: templateName.trim(),
+        description: templateDesc.trim(),
+      }),
+    onSuccess: (tpl) => {
+      setShowTemplateForm(false)
+      setMessage(`模板已保存：「${tpl.name}」（${tpl.step_count} 步）——可在任务中心“从模板创建”一键复用`)
+      setTemplateName('')
+      setTemplateDesc('')
+    },
+    onError: (error) => setMessage(errorText(error)),
+  })
 
   const task = useQuery({
     queryKey: ['task', id],
@@ -333,10 +351,37 @@ export default function TaskDetailPage() {
                   disabled={exporting} onClick={() => exportReport('markdown')}>导出报告</button>
           <button className="rounded border border-slate-600 px-3 py-1.5 text-slate-300 disabled:opacity-40"
                   disabled={exporting} onClick={() => exportReport('json')}>导出 JSON</button>
+          <button className="rounded border border-violet-700 px-3 py-1.5 text-violet-300 disabled:opacity-40"
+                  disabled={!data.plan?.steps?.length} onClick={() => setShowTemplateForm(true)}>存为模板</button>
         </div>
       </div>
 
       {message && <div className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm">{message}</div>}
+
+      {showTemplateForm && (
+        <section className="rounded border border-violet-800 bg-violet-950/30 p-4">
+          <h3 className="text-sm font-medium text-violet-200">存为任务模板（SOP 复用）</h3>
+          <p className="mt-1 text-xs text-slate-400">
+            把本任务的 {data.plan?.steps?.length ?? 0} 步执行计划沉淀为模板，之后一键实例化给新客户/新项目。
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                   placeholder="模板名称（如：企业官网交付流水线）" value={templateName}
+                   onChange={(e) => setTemplateName(e.target.value)} />
+            <input className="flex-1 rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                   placeholder="模板说明（可选）" value={templateDesc}
+                   onChange={(e) => setTemplateDesc(e.target.value)} />
+            <button className="rounded bg-violet-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+                    disabled={!templateName.trim() || saveTemplate.isPending}
+                    onClick={() => saveTemplate.mutate()}>
+              {saveTemplate.isPending ? '保存中…' : '保存模板'}
+            </button>
+            <button className="text-xs text-slate-500 hover:text-slate-300" onClick={() => setShowTemplateForm(false)}>
+              取消
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="grid gap-3 text-sm md:grid-cols-4">
         <div className="rounded border border-slate-800 p-3">

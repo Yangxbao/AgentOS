@@ -267,4 +267,27 @@ export const tasksApi = {
     api.get<MonitorSummary>(`/api/v1/monitor/summary?company_id=${companyId}`),
   exportTask: (taskId: string, format: 'json' | 'markdown') =>
     api.getRaw(`/api/v1/tasks/${taskId}/export?format=${format}`),
+
+  // M4-SOP：任务模板（沉淀跑通的流水线，一键实例化新任务）
+  createTemplate: (companyId: string, body: { task_id: string; name: string; description?: string }) =>
+    api.post<TaskTemplate>(`/api/v1/companies/${companyId}/task-templates`, body),
+  listTemplates: (companyId: string) =>
+    api.get<{ items: TaskTemplate[] }>(`/api/v1/companies/${companyId}/task-templates`),
+  instantiateTemplate: (
+    templateId: string,
+    body: { title: string; objective?: string; assignee_employee_id?: string | null; budget_usd?: number | null },
+  ) => api.post<Task>(`/api/v1/task-templates/${templateId}/instantiate`, body),
+  deleteTemplate: (templateId: string) => api.delete<void>(`/api/v1/task-templates/${templateId}`),
+}
+
+export interface TaskTemplate {
+  id: string
+  company_id: string
+  name: string
+  description: string
+  steps: Array<{ id: string; employee_id?: string; instruction: string; deliverable?: string }>
+  step_count: number
+  source_task_title: string
+  usage_count: number
+  created_at: string | null
 }

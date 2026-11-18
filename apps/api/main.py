@@ -40,6 +40,7 @@ from apps.api.routers import (  # noqa: E402
     prompts,
     system,
     tasks,
+    templates,
     tools,
 )
 from apps.api.security.local_guard import LocalGuardMiddleware, config_from_env  # noqa: E402
@@ -97,6 +98,7 @@ def create_app() -> FastAPI:
         governance.router,
         config_io.router,
         tasks.router,
+        templates.router,
         approvals.router,
         monitor.router,
         tools.router,

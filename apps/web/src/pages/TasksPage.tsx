@@ -71,6 +71,33 @@ export default function TasksPage() {
 
   const [open, setOpen] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [showTpl, setShowTpl] = useState(false)
+  const [tplId, setTplId] = useState('')
+  const [tplTitle, setTplTitle] = useState('')
+  const [tplObjective, setTplObjective] = useState('')
+  const [tplBudget, setTplBudget] = useState('')
+  const templates = useQuery({
+    queryKey: ['task-templates', activeCompanyId],
+    queryFn: () => tasksApi.listTemplates(activeCompanyId as string),
+    enabled: Boolean(activeCompanyId),
+  })
+  const createFromTpl = useMutation({
+    mutationFn: () =>
+      tasksApi.instantiateTemplate(tplId, {
+        title: tplTitle.trim(),
+        objective: tplObjective.trim(),
+        budget_usd: tplBudget ? Number(tplBudget) : null,
+      }),
+    onSuccess: (task) => {
+      setMessage(`已从模板创建任务「${task.title}」——执行计划已按 SOP 落地，进详情页确认后执行`)
+      setShowTpl(false)
+      setTplTitle('')
+      setTplObjective('')
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+    },
+    onError: (error) => setMessage(errorText(error)),
+  })
+
   const [title, setTitle] = useState('')
   const [objective, setObjective] = useState('')
   const [assignee, setAssignee] = useState('')
@@ -153,6 +180,12 @@ export default function TasksPage() {
         />
         <span className="text-xs text-slate-500">共 {tasks.data?.total ?? 0} 个任务</span>
         <button
+          className="rounded border border-violet-700 px-3 py-1.5 text-sm text-violet-300 hover:bg-violet-950/40"
+          onClick={() => setShowTpl(!showTpl)}
+        >
+          {showTpl ? '收起' : '📋 从模板创建'}
+        </button>
+        <button
           className="ml-auto rounded bg-sky-600 px-4 py-1.5 text-sm text-white"
           onClick={() => setOpen((value) => !value)}
         >
@@ -162,6 +195,57 @@ export default function TasksPage() {
 
       {message && (
         <div className="mt-3 rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm">{message}</div>
+      )}
+
+      {showTpl && (
+        <section className="mt-4 rounded border border-violet-800 bg-violet-950/30 p-4">
+          <h3 className="text-sm font-medium text-violet-200">📋 从模板创建任务（SOP 一键复用）</h3>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <select
+              className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+              value={tplId}
+              onChange={(event) => setTplId(event.target.value)}
+            >
+              <option value="">选择模板…</option>
+              {(templates.data?.items ?? []).map((tpl) => (
+                <option key={tpl.id} value={tpl.id}>
+                  {tpl.name}（{tpl.step_count} 步 · 已复用 {tpl.usage_count} 次）
+                </option>
+              ))}
+            </select>
+            <input
+              className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+              placeholder="新任务标题（必填）"
+              value={tplTitle}
+              onChange={(event) => setTplTitle(event.target.value)}
+            />
+            <textarea
+              className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 md:col-span-2"
+              rows={2}
+              placeholder="任务目标 / 需求描述（将写入任务目标）"
+              value={tplObjective}
+              onChange={(event) => setTplObjective(event.target.value)}
+            />
+            <input
+              className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+              placeholder="预算 USD（可选）"
+              value={tplBudget}
+              onChange={(event) => setTplBudget(event.target.value.replace(/[^0-9.]/g, ''))}
+            />
+            <button
+              className="rounded bg-violet-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+              disabled={!tplId || !tplTitle.trim() || createFromTpl.isPending}
+              onClick={() => createFromTpl.mutate()}
+            >
+              {createFromTpl.isPending ? '创建中…' : '创建任务（计划按 SOP 落地）'}
+            </button>
+          </div>
+          {(templates.data?.items ?? []).length === 0 && (
+            <p className="mt-2 text-xs text-amber-400">
+              还没有模板——先在任务详情页把跑通的流水线「存为模板」。
+            </p>
+          )}
+        </section>
       )}
 
       {open && (

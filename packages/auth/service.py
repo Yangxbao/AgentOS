@@ -120,3 +120,21 @@ def logout(session: Session, token: str) -> bool:
     session.delete(row)
     session.commit()
     return True
+
+
+def change_password(session: Session, *, token_info: dict, old_password: str, new_password: str) -> None:
+    """修改密码（M4 收尾）：校验旧密码 → 更新哈希 → 吊销该用户全部会话（安全惯例）。"""
+    if len(new_password or "") < 8:
+        raise DomainError("VALIDATION_ERROR", "新密码至少 8 位", 422)
+    user = session.get(SysUser, token_info["user_id"])
+    if user is None or user.status != "active":
+        raise DomainError("AUTH_INVALID_CREDENTIALS", "账号不存在或已停用", 401)
+    if not verify_password(old_password or "", user.password_hash):
+        raise DomainError("AUTH_OLD_PASSWORD_WRONG", "旧密码不正确", 403)
+    user.password_hash = hash_password(new_password)
+    # 吊销该用户全部会话：改密后所有已登录设备需重新登录
+    for sess in session.execute(
+        select(SysSession).where(SysSession.user_id == user.id)
+    ).scalars().all():
+        session.delete(sess)
+    session.commit()

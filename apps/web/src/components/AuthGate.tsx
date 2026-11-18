@@ -107,6 +107,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 export function AuthBadge() {
   const status = useQuery({ queryKey: ['auth-status'], queryFn: () => authApi.status(), staleTime: 60_000 })
   const [, setVersion] = useState(0)
+  const [showPwd, setShowPwd] = useState(false)
+  const [oldPwd, setOldPwd] = useState('')
+  const [newPwd, setNewPwd] = useState('')
+  const [pwdMsg, setPwdMsg] = useState<string | null>(null)
+  const [pwdBusy, setPwdBusy] = useState(false)
 
   useEffect(() => {
     const handler = () => setVersion((v) => v + 1)
@@ -127,11 +132,53 @@ export function AuthBadge() {
   }
   if (!user) return null
   return (
-    <span className="flex items-center gap-2 text-xs text-slate-400">
+    <span className="relative flex items-center gap-2 text-xs text-slate-400">
       <span className="rounded bg-slate-800 px-2 py-0.5">{user.display_name || user.username}</span>
+      <button className="text-slate-500 hover:text-slate-300" onClick={() => setShowPwd(!showPwd)}>
+        改密
+      </button>
       <button className="text-slate-500 hover:text-slate-300" onClick={logout}>
         登出
       </button>
+      {showPwd && (
+        <div className="absolute right-0 top-7 z-50 w-64 rounded border border-slate-700 bg-slate-900 p-3 shadow-xl">
+          <div className="mb-2 text-xs font-medium text-slate-200">修改密码</div>
+          <input
+            type="password"
+            className="mb-2 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-100"
+            placeholder="旧密码"
+            value={oldPwd}
+            onChange={(e) => setOldPwd(e.target.value)}
+          />
+          <input
+            type="password"
+            className="mb-2 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-100"
+            placeholder="新密码（至少 8 位）"
+            value={newPwd}
+            onChange={(e) => setNewPwd(e.target.value)}
+          />
+          {pwdMsg && <div className="mb-2 text-[11px] text-amber-300">{pwdMsg}</div>}
+          <button
+            className="w-full rounded bg-sky-600 px-2 py-1.5 text-xs text-white disabled:opacity-50"
+            disabled={pwdBusy || !oldPwd || newPwd.length < 8}
+            onClick={async () => {
+              setPwdBusy(true)
+              setPwdMsg(null)
+              try {
+                const r = await authApi.changePassword(oldPwd, newPwd)
+                setPwdMsg(r.message + '，请重新登录')
+                authStore.clear()
+              } catch (err) {
+                setPwdMsg(err instanceof Error ? err.message : String(err))
+              } finally {
+                setPwdBusy(false)
+              }
+            }}
+          >
+            {pwdBusy ? '提交中…' : '确认修改'}
+          </button>
+        </div>
+      )}
     </span>
   )
 }
